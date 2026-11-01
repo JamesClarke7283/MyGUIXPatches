@@ -11,6 +11,7 @@ software that is not in Guix or nonguix, so it can be built locally from source.
       wireguard.scm            (patches wireguard)      wireguard-go package
       bun.scm                  (patches bun)            Bun, built from source
       bun-bootstrap.scm        (patches bun-bootstrap)  prebuilt Bun seed for the above
+      coding-agents.scm        (patches coding-agents)  oh-my-pi ("omp") and its addons
       crates/mullvad.scm       (patches crates mullvad) generated crate origins
       services/vpn.scm         (patches services vpn)   Guix System service
     tools/
@@ -204,19 +205,84 @@ Verified by hand against the same artifact: `bun --version` prints `1.4.4`.
 
 ## oh-my-pi
 
-Not implemented yet, and blocked on `bun` above.
+`(patches coding-agents)` provides `oh-my-pi`, the agent invoked as `omp`.
+It works:
 
-`omp` is a Bun application: its `dist/cli.js` imports `bun:ffi`, `bun:sqlite`
-and `bun:jsc`, so Node cannot run it. Its native bindings
-(`@oh-my-pi/pi-natives`) ship only JS loaders — the `.node` addon is embedded in
-upstream's compiled binary. Upstream's own Nix flake builds it with `bun2nix` on
-top of Bun 1.4.4, which is exactly the dependency this channel cannot yet
-satisfy from source: it needs a working `bun`, which needs the Rust nightly and
-the offline C/C++ dependencies noted above.
+    $ omp --version
+    omp/18.15.0
+    $ omp --help
+    omp v18.15.0
+    ...
 
-The npm tarball of `@oh-my-pi/pi-coding-agent` does ship `src/` alongside
-`dist/`, so once `bun` builds there is a real source path: install the tarball,
-place `@oh-my-pi/pi-natives` beside it, and wrap `dist/cli.js` with `bun`.
+It is built from three published artefacts plus the Bun runtime:
+
+| package | what it is |
+| --- | --- |
+| `oh-my-pi` | `@oh-my-pi/pi-coding-agent` — `dist/`, `src/`, `skills/`, `prompts/` |
+| `oh-my-pi-natives` | `@oh-my-pi/pi-natives` — the JavaScript loaders |
+| `oh-my-pi-natives-linux-x64` | `@oh-my-pi/pi-natives-linux-x64` — the compiled N-API addon |
+
+There is no compile step. `dist/cli.js` is an ~18 MB bundle that Bun executes
+directly; re-bundling it with `bun build` would reproduce the artefact we
+already have. Everything the bundle imports is either inlined into it or a
+Bun/Node builtin (`bun:ffi`, `bun:sqlite`, `bun:jsc`, `node:fs`, …), with one
+exception: `@oh-my-pi/pi-natives`.
+
+### The addon is a separate package, and that is not obvious
+
+Installing only `@oh-my-pi/pi-natives` leaves `omp` failing at start-up:
+
+    error: Failed to load pi_natives native addon for linux-x64 (modern).
+    Tried:
+    - .../pi-natives/native/pi_natives.linux-x64-modern.node: Cannot find module
+    - .../pi-natives/native/pi_natives.linux-x64-baseline.node: Cannot find module
+    - .../pi-natives/native/pi_natives.linux-x64.node: Cannot find module
+
+The npm package of that name contains **loaders only** — no `.node` files. The
+compiled addon is published separately as `@oh-my-pi/pi-natives-linux-x64`,
+which carries `pi_natives.linux-x64-modern.node` and `...-baseline.node`. The
+`oh-my-pi` package drops both into `pi-natives/native/`, where the loader
+probes for them.
+
+### Module resolution
+
+Both JS packages are installed flat under `lib/node_modules`:
+
+    <out>/lib/node_modules/@oh-my-pi/pi-coding-agent
+    <out>/lib/node_modules/@oh-my-pi/pi-natives
+
+Bun, like Node, resolves a bare specifier by walking up from the importing file
+and trying `<ancestor>/node_modules/<specifier>` at each level. From
+`.../pi-coding-agent/dist/cli.js` the ancestor `lib` yields
+`lib/node_modules/@oh-my-pi/pi-natives`, so the bundle's bare import resolves
+with no `NODE_PATH` juggling. The two packages must stay siblings.
+
+### Runtime
+
+`omp` needs Bun >= 1.4.4 and will not run under Node at all, because the bundle
+imports `bun:ffi`, `bun:sqlite` and `bun:jsc`.
+
+The wrapper currently points at `bun-bootstrap`, because `(patches bun)` does
+not build yet. `bun-bootstrap` *is* Bun 1.4.4, so `omp` works today; what is not
+from-source is only the provenance of its runtime. When `bun` becomes buildable,
+change the single `bun-bootstrap` reference in the `install`-wrap step and the
+corresponding input; nothing else moves.
+
+### What is left, and why
+
+The JavaScript half is final: it is upstream's own published bundle, and there
+is nothing to compile. Two pieces of `omp` remain non-reproducible:
+
+1. **The N-API addon.** Rebuilding it means building `packages/natives` in the
+   oh-my-pi monorepo, which upstream drives with Bazel
+   (`bun ../../scripts/bazel-natives.ts host --dest native`) over a ~750 MB
+   checkout whose Bazel dependencies are fetched over the network. That is not
+   compatible with Guix's offline build sandbox as it stands, so the published
+   per-platform addon is used instead.
+2. **The Bun runtime.** See the section above.
+
+So: `omp` works, and the only prebuilt pieces in this channel are Bun (as a
+bootstrap seed, and only until `bun` builds) and this addon.
 
 ## Regenerating the mullvad crate list
 
