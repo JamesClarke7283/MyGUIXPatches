@@ -1,0 +1,9 @@
+;; -*- mode: scheme; -*-
+;; Guix channel declaration for this repository.
+;;
+;; The modules exported by this channel live under the "modules"
+;; directory; a file such as "modules/patches/vpn.scm" provides the
+;; module (patches vpn).
+(channel
+ (version 0)
+ (directory "modules"))
