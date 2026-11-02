@@ -97,7 +97,9 @@
   #:use-module (guix build-system cargo)
   #:use-module (guix licenses)
 
-  #:use-module (gnu packages base)            ; binutils
+  #:use-module (gnu packages base)            ; binutils, make
+  #:use-module (gnu packages bash)            ; CONFIG_SHELL, MAKESHELL
+  #:use-module (gnu packages version-control) ; git, for mullvad-daemon build.rs
   #:use-module (gnu packages commencement)   ; gcc-toolchain
   #:use-module (gnu packages glib)           ; dbus
   #:use-module (gnu packages linux)          ; libmnl, libnftnl
@@ -161,16 +163,45 @@
           ;; linking fails with "posix_spawnp: No such file or directory".
           (add-before 'build 'set-toolchain-path
             (lambda _
-              ;; rustc derives its sysroot from /proc/self/exe, which under our
-              ;; loader shim is ld.so -- so every -B/-L flag it emits contains the
-              ;; literal text "<sysroot>" and the linker cannot be found.
-              ;; State the sysroot explicitly instead.
-              (setenv "RUSTFLAGS"
-                      (string-append "--sysroot=" #$(file-append rust-1.99 "/libexec/rust") " " (or (getenv "RUSTFLAGS") "")))
+              ;; rustc reports its linker invocation with <sysroot> in it, but
+              ;; that is only how it echoes the arguments -- the real paths are
+              ;; substituted, so nothing needs doing about it here.
               (setenv "CC"        #$(file-append gcc-toolchain "/bin/gcc"))
               (setenv "CXX"       #$(file-append gcc-toolchain "/bin/g++"))
               (setenv "LD"        #$(file-append binutils "/bin/ld"))
               (setenv "AR"        #$(file-append binutils "/bin/ar"))
+              ;; Build scripts are compiled binaries that get run, so they need
+              ;; libgcc_s at load time; LIBRARY_PATH only affects linking.
+              (setenv "LD_LIBRARY_PATH"
+                      (string-append #$(file-append gcc-toolchain "/lib")))
+              ;; jemalloc's configure runs build-aux/config.sub through /bin/sh,
+              ;; which does not exist in the sandbox ("cannot run /bin/sh").
+              (setenv "CONFIG_SHELL" #$(file-append bash "/bin/bash"))
+              ;; mullvad-daemon's build.rs shells out to git log for the commit
+              ;; date, and a tarball has no repository.  git is on PATH and the
+              ;; source is writable, so make a single-commit repo for it.
+              (unless (file-exists? ".git")
+                (invoke "git" "init" "-q")
+                (invoke "git" "-c" "user.email=guix@localhost"
+                        "-c" "user.name=guix" "commit" "-q" "--allow-empty"
+                        "-m" "Guix build"))
+              ;; make hard-codes /bin/sh for its recipes, which does not exist in
+              ;; the sandbox; MAKESHELL overrides the default shell it uses.
+              (setenv "MAKESHELL" #$(file-append bash "/bin/bash"))
+              ;; A makefile's own "SHELL = /bin/sh" wins over MAKESHELL, but not
+              ;; over MAKEFLAGS.
+              (setenv "MAKEFLAGS"
+                      (string-append "SHELL=" #$(file-append bash "/bin/bash")
+                                     " " (or (getenv "MAKEFLAGS") "")))
+              ;; The linked binaries need to find their shared libraries at run
+              ;; time, and cargo never sets RUNPATH.  Pass it through rustc.
+              (setenv "RUSTFLAGS"
+                      (string-append
+                       "-C link-arg=-Wl,-rpath," #$(file-append gcc-toolchain "/lib")
+                       ":" #$(file-append dbus "/lib")
+                       ":" #$(file-append libmnl "/lib")
+                       ":" #$(file-append libnftnl "/lib")
+                       " " (or (getenv "RUSTFLAGS") "")))
               (setenv "PATH"
                       (string-append #$(file-append binutils "/bin") ":"
                                      #$(file-append gcc-toolchain "/bin") ":"
@@ -436,6 +467,7 @@
     ;; pkg-config: libdbus-sys looks for dbus-1.pc.
     (native-inputs
      (list protobuf
+           git
            pkg-config
            gcc-toolchain))
     ;; dbus: libdbus-sys.  libnftnl and libmnl: mullvad-daemon links -lnftnl

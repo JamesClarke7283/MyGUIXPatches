@@ -136,21 +136,30 @@
     ;;      so collect2 dies before any of this is reported:
     ;;        collect2: fatal error: posix_spawnp: No such file or directory
     ;;
-    ;; So fill the directory with tiny shell wrappers onto binutils' native
-    ;; tools, which need no loader and link these crates perfectly well.
     (let ((gcc-ld (string-append real "/lib/rustlib/" triplet "/bin/gcc-ld")))
       (when (directory-exists? gcc-ld)
         (for-each
-         (lambda (tool)
-           (let ((path (string-append gcc-ld "/" tool)))
+         (lambda (pair)
+           (let* ((tool (car pair))
+                  (target (string-append (input "binutils") "/bin/" (cdr pair)))
+                  (path (string-append gcc-ld "/" tool)))
              (when (file-exists? path)
                (delete-file path))
+             ;; The interpreter has to be absolute: /bin/sh does not exist inside
+             ;; the build sandbox, and a script whose interpreter cannot be found
+             ;; fails with exactly the unhelpful error collect2 gave.
              (call-with-output-file path
                (lambda (port)
-                 (format port "#!/bin/sh\nexec ~a \"$@\"\n"
-                         (string-append (input "binutils") "/bin/" tool))))
+                 (format port "#!~a/bin/bash\nexec ~a \"$@\"\n"
+                         (input "bash")
+                         target)))
              (chmod path #o555)))
-         (list "ld.lld" "ld64.lld" "lld-link" "wasm-ld" "as" "ld"))))
+         '(("as" . "as")
+           ("ld" . "ld")
+           ("ld.lld" . "ld")
+           ("ld64.lld" . "ld")
+           ("lld-link" . "ld")
+           ("wasm-ld" . "ld")))))
     ;; cargo-build-system expects its #:rust argument to expose a separate
     ;; "cargo" output.  It is the same tree, so symlink it.
     (let ((cargo-out (assoc-ref outputs "cargo")))

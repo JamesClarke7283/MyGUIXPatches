@@ -75,7 +75,8 @@
   #:use-module (guix packages)
   #:use-module (guix build-system trivial)
   #:use-module ((guix licenses) #:hide (zlib))
-  #:use-module (gnu packages base)
+  #:use-module (gnu packages base)          ; tar, binutils
+  #:use-module (gnu packages bash)          ; interpreter for the ld wrappers
   #:use-module (gnu packages commencement)
   #:use-module (gnu packages compression)
   #:use-module (gnu packages gcc))
@@ -303,6 +304,7 @@ passed as an ordinary build input.  @code{rust-1.99} does the installation.")
            xz
            binutils
            gcc-toolchain
+           bash
            (rust-stable-carrier "rust-1.99-cargo" "cargo")
            (rust-stable-carrier "rust-1.99-rust-std" "rust-std")
            (rust-stable-carrier "rust-1.99-rust-src" "rust-src")))
