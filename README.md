@@ -8,6 +8,8 @@ software that is not in Guix or nonguix, so it can be built locally from source.
     .guix-channel              channel declaration: modules/ is the module root
     modules/patches/
       vpn.scm                  (patches vpn)            mullvad-vpn package
+      rust-nightly.scm         (patches rust-nightly)   pinned Rust nightly
+      rust-nightly-build.scm   (patches rust-nightly-build)  build-side helpers
       wireguard.scm            (patches wireguard)      wireguard-go package
       bun.scm                  (patches bun)            Bun, built from source
       bun-bootstrap.scm        (patches bun-bootstrap)  prebuilt Bun seed for the above
@@ -114,7 +116,9 @@ failures result:
 
 The second one appears the moment the lock is removed, which proves the lock is
 load-bearing: **the working recipe is `cargo vendor` output (real
-`.cargo-checksum.json`) with upstream's `Cargo.lock` kept.**
+`.cargo-checksum.json`) with upstream's `Cargo.lock` kept.** With that vendor
+tree the three workspace members compile and link, which is how the versions
+above were obtained.
 
 Things tried that do **not** work, so they are not worth repeating:
 
@@ -213,6 +217,42 @@ lockdown (kill-switch) mode before stopping, preventing leaks on restart.
 first. If that matters to you, stop the service explicitly before
 reconfiguring.
 
+## rust-nightly
+
+`(patches rust-nightly)` provides the exact toolchain Bun pins:
+**nightly-2026-09-15**, with `rust-src`, on **LLVM 23.1.1**.
+
+It is needed because Bun's Rust half cannot be built with a stable compiler.
+`scripts/build/rust.ts` passes nightly-only flags (`-Zbuild-std`,
+`-Ztune-cpu`) that stable rustc rejects outright. Bun also refuses to start
+the build when the LLVM versions differ:
+
+    error: clang is LLVM 23.1.1 and rustc's LLVM is 21.1.8;
+           they have to be the same major version
+
+Verified after building:
+
+    $ rustc -vV
+    rustc 1.100.0-nightly (574ff7d98 2026-09-14)
+    LLVM version: 23.1.1
+    $ cargo --version
+    cargo 1.100.0-nightly (7941be6fb 2026-09-11)
+
+`rust-src` lands in `lib/rustlib/src/rust`, which is where cargo looks when
+`-Zbuild-std` asks for the standard library sources.
+
+The toolchain binaries expect the FHS loader, like Bun's, so each gets a small
+compiled C shim that execs it through the store's glibc loader with
+`libgcc_s` and `zlib` on the library path. Unlike Bun's binary these *could* be
+patched with `patchelf` (nothing is appended after their section headers), but
+shims are used for consistency with `bun-bootstrap` and because build systems
+treat a compiler's path as an opaque command prefix.
+
+These are upstream's published binaries for the pinned channel, not a source
+build: building rustc at a specific nightly commit takes hours and still needs
+a stage-0 compiler. The matching `rustc-nightly-src.tar.xz` is fetched as a
+build input and is what a from-source version would compile from.
+
 ## bun
 
 Split in two, because Bun cannot bootstrap itself.
@@ -263,19 +303,63 @@ finished.
 The release executable is `ET_EXEC` with `PT_INTERP` pointing at the FHS loader
 `/lib64/ld-linux-x86-64.so.2`, which does not exist on Guix System.
 
-Do **not** "fix" this with `patchelf`. It appears to work — `patchelf
---set-interpreter` rewrites the file and then reports the new interpreter — but
-the result segfaults on exec (exit 139, no output), because Bun's binary carries
-a large payload after its section headers and patchelf's rewrite of those
-headers corrupts it.
+Do **not** "fix" this with `patchelf`. It exits 0 and prints the new
+interpreter, so it looks like it worked, but the result segfaults on exec
+(exit 139). Bun stores its JS payload after the section headers and patchelf
+moves it: the file grows by a page (`107308936` → `107317128` bytes) and the
+last megabyte hashes differently. Bun addresses that payload by absolute
+offset, so any shift breaks it.
 
-Instead the binary is kept byte-for-byte pristine in `libexec/` and a small
-wrapper runs it through the store's glibc loader:
+Instead the binary is kept byte-for-byte pristine in `libexec/` and started
+through the store's glibc loader by a small **compiled C** shim (not a shell
+script, see below). Verified against the same artifact: `bun --version` prints
+`1.4.4`, `bun script.ts` and `bun run` both work.
 
-    exec <glibc>/lib/ld-linux-x86-64.so.2 --library-path <glibc>/lib \
-         <out>/libexec/bun/bun "$@"
+### Why the shim is C, and what it cannot fix
 
-Verified by hand against the same artifact: `bun --version` prints `1.4.4`.
+Starting Bun through the loader leaves `/proc/self/exe` pointing at `ld.so`, so
+Bun reports the loader as its own executable:
+
+    $ bun -e 'console.log(process.execPath)'
+    /gnu/store/...-glibc-2.41/lib/ld-linux-x86-64.so.2
+
+Harmless for everything Bun does on its own, but Bun's build records
+`process.execPath` verbatim into `build.ninja` (`scripts/build/configure.ts`:
+`jsRuntime: q(process.execPath)`) and then uses it to run its own `.ts` build
+scripts, so ninja tries to execute a `.ts` file with the dynamic linker:
+
+    error while loading shared libraries: .../stream.ts: invalid ELF header
+
+`(patches bun)` patches that one expression to prefer `BUN_JS_RUNTIME`, which
+the build phase sets to the shim. The helpers then run correctly
+(`[rust-argon2] Bun v1.4.4 (Linux x64)`).
+
+### Where the build stops now
+
+With `jsRuntime` fixed and a writable `HOME` (the fetches cache under
+`$HOME/.bun/build-cache`, and `$HOME` is `/homeless-shelter` in the sandbox —
+that alone was an `EACCES`), the build runs for about three minutes and then
+fails on **network access**:
+
+    [lolhtml] error: Failed to download after 10 attempts:
+      https://github.com/oven-sh/lol-html/archive/725ce499....tar.gz
+    [ninja] could not fetch bun-ninja-5ecd8831 ... EAI_AGAIN github.com
+
+That is Guix's offline sandbox working as intended. Bun's build fetches ~23
+C/C++ dependencies (`lolhtml`, `rust-argon2`, `boringssl`, `libuv`, `mimalloc`,
+`zstd`, …) plus its own `ninja` fork, applies the patches under `patches/` to
+each, and builds them. Before this package can finish, those must become Guix
+origins placed where `scripts/build/deps/*.ts` expects to find them.
+
+### What is already proven
+
+Configure succeeds inside Guix and reports the real profile:
+
+    [configured] bun-profile → bun (stripped)
+      target       linux-x64-gnu
+      build type   Release
+      features     lto, baseline
+    23 deps, 228 codegen, 1218 objects
 
 ## oh-my-pi
 
