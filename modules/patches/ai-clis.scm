@@ -72,15 +72,21 @@
   #:use-module (gnu packages gcc))          ; gcc:lib, for libstdc++
 
 ;;; The C source of a shim that starts a program through the store's ELF loader.
-;;; It is used as a format string with three arguments: loader, libpath, target.
+;;; Format arguments, in order: loader, libpath, target, loader, node-path.
+;;;
+;;; node-path becomes NODE_PATH; t3 needs it because its launcher resolves
+;;; @cursor/sdk through the module path rather than from beside itself.  It is
+;;; empty for claude, which ignores it.
 (define %shim-c
   "#include <unistd.h>
 #include <stdlib.h>
 
 int main(int argc, char **argv) {
   char **nargv = malloc(sizeof(char *) * (argc + 5));
+  char *nodepath = ~s;
   int i = 0;
   if (nargv == NULL) return 126;
+  if (nodepath[0] != '\\0') setenv(\"NODE_PATH\", nodepath, 1);
   nargv[i++] = ~s;
   nargv[i++] = \"--library-path\";
   nargv[i++] = ~s;
@@ -150,8 +156,9 @@ int main(int argc, char **argv) {
                    (call-with-output-file source
                      (lambda (port)
                        (display
-                        (format #f #$%shim-c loader libpath
-                                (string-append bundle "/t3") loader)
+                        (format #f #$%shim-c
+                                (string-append bundle "/node_modules")
+                                loader libpath (string-append bundle "/t3") loader)
                         port)))
                    (invoke gcc "-O2" "-o" target source)
                    (chmod target #o555)
@@ -288,7 +295,7 @@ vendor tree hosted somewhere first.")
                    (mkdir-p (dirname target))
                    (call-with-output-file source
                      (lambda (port)
-                       (display (format #f #$%shim-c loader libpath real loader)
+                       (display (format #f #$%shim-c "" loader libpath real loader)
                                 port)))
                    (invoke gcc "-O2" "-o" target source)
                    (chmod target #o555)
