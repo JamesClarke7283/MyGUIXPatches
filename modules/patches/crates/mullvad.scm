@@ -1,7 +1,13 @@
 ;;; -*- mode: scheme; -*-
 ;;
 ;;; Crate origins for mullvad-vpn 2026.5, generated from upstream Cargo.lock.
-;;; Regenerate with tools/update-mullvad-crates.sh -- do not edit by hand.
+;;; Regenerate with tools/update-mullvad-crates.sh -- mostly.  Two entries are
+;;; hand-added and would be lost by a regeneration: rust-jiff-0.2.22 and
+;;; rust-jiff-static-0.2.22.  They are not in upstream's Cargo.lock (cargo
+;;; pruned them), but a from-scratch resolution -- which is what happens here,
+;;; since cargo-build-system deletes the lock -- reaches jiff through
+;;; test-log -> env_logger, so the crates have to be vendored.  See the LONG
+;;; comment in modules/patches/vpn.scm and the mullvad-vpn section of README.md.
 ;;
 ;;; Each entry is a proper two-element list (label origin), which is what
 ;;; cargo-build-system's expand-crate-sources matches on before turning it
@@ -2861,8 +2867,18 @@
                 "14fn22j5ccnpal9p55l5cg8fkb6a6f2z2mnnchqpm87z6dblyikd"))
 
 
+(define rust-jiff-0.2.22
+  (crate-source "jiff" "0.2.22"
+                "1hni7qv2j2kbjisw84r7y6gxdb8qx534vw92nmz13nc7gjy496w1"))
+
+(define rust-jiff-static-0.2.22
+  (crate-source "jiff-static" "0.2.22"
+                "18fljj75vxqvq1v55s074pbbrjy67qg1p2f0cvbmzhzc33dm40j7"))
+
 (define mullvad-crate-inputs
   (list
+   (list "rust-jiff-static-0.2.22" rust-jiff-static-0.2.22)
+   (list "rust-jiff-0.2.22" rust-jiff-0.2.22)
    (list "rust-adler2-2.0.1" rust-adler2-2.0.1)
    (list "rust-aead-0.5.2" rust-aead-0.5.2)
    (list "rust-aes-0.8.4" rust-aes-0.8.4)

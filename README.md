@@ -68,6 +68,51 @@ crate has to reach the build as a fixed-output origin.
 
 The first build compiles several hundred crates and takes a long while.
 
+### Status: not yet building
+
+This package gets as far as vendoring, the git-dependency rewrite and the
+pregenerated-file check, then stops in dependency resolution. **Do not expect
+`guix build mullvad-vpn` to succeed yet.**
+
+The cause is a mismatch between how the crates are supplied and what a
+from-scratch resolution needs. `cargo-build-system` deletes `Cargo.lock` in its
+`configure` phase, so cargo resolves from scratch against the vendor directory.
+A from-scratch resolution also has to satisfy dependencies that upstream's lock
+prunes — optional ones and **dev**-dependencies — and `guix import crate -f`
+only emits what the lock contains. The tail observed so far:
+
+    talpid-core (dev-dependency)
+      -> test-log
+        -> env_logger
+          -> jiff -> jiff-static, portable-atomic-util
+
+`jiff` and `jiff-static` have been hand-added to
+`modules/patches/crates/mullvad.scm` to get past two of these, but
+`portable-atomic-util` and the dev-dependency subtree remain.
+
+Things that were tried and do **not** work, so they are not worth repeating:
+
+- **Restoring the lock.** `patch-cargo-checksums` stubs every vendored
+  `.cargo-checksum.json`, so with the lock present cargo stops with
+  "unable to verify that `zerocopy-derive v0.8.31` is the same as when the
+  lockfile was generated". This is precisely why the build system deletes it.
+- **A `[source."git+…"] replace-with` stanza** for the one git dependency. That
+  needs a lock file naming the git source ("the source git+… requires a lock
+  file to be present first before it can be used against vendored source
+  code"), which conflicts with the point above.
+- **A line-oriented prune of `test-log`** to cut the dev-dependency subtree. It
+  works where the dependency is an inline table, but where a crate declares its
+  own `[dependencies.test-log]` table the header is removed while the keys stay,
+  and cargo fails with "duplicate key".
+
+The clean fix is to stop deriving the vendor set from the lock at all: run
+`cargo vendor` once for this workspace, publish its output as a tarball, and
+point `[source.vendored-sources]` at it with the `.cargo-checksum.json` files
+intact. That keeps the lock usable and makes resolution deterministic. It needs
+somewhere to host the tarball, or a `local-file` alongside the channel.
+
+The Electron GUI is a separate, larger gap — see above and below.
+
 ### Runtime dependency: wireguard-go
 
 The daemon spawns `wireguard-go` to create the tunnel, so the binary has to be
