@@ -68,48 +68,77 @@ crate has to reach the build as a fixed-output origin.
 
 The first build compiles several hundred crates and takes a long while.
 
-### Status: not yet building
+### Version choice: 2026.1, not the newest release
 
-This package gets as far as vendoring, the git-dependency rewrite and the
-pregenerated-file check, then stops in dependency resolution. **Do not expect
-`guix build mullvad-vpn` to succeed yet.**
+Upstream raises `rust-version` as it goes, and the daemon will not build with a
+compiler older than that. Guix ships **rust 1.93.0** and has no `rust@1.95`:
 
-The cause is a mismatch between how the crates are supplied and what a
-from-scratch resolution needs. `cargo-build-system` deletes `Cargo.lock` in its
-`configure` phase, so cargo resolves from scratch against the vendor directory.
-A from-scratch resolution also has to satisfy dependencies that upstream's lock
-prunes — optional ones and **dev**-dependencies — and `guix import crate -f`
-only emits what the lock contains. The tail observed so far:
+| tag | `rust-version` | buildable with Guix's rust 1.93 |
+| --- | --- | --- |
+| 2026.5 / 2026.4 / 2026.3 | 1.95.0 | no |
+| 2026.2 | 1.94.0 | no |
+| **2026.1** | 1.91.0 | **yes** |
 
-    talpid-core (dev-dependency)
-      -> test-log
-        -> env_logger
-          -> jiff -> jiff-static, portable-atomic-util
+So this package is pinned to 2026.1. Bumping it means either picking a tag whose
+`rust-version` is ≤ Guix's rust, or packaging a newer rust first.
 
-`jiff` and `jiff-static` have been hand-added to
-`modules/patches/crates/mullvad.scm` to get past two of these, but
-`portable-atomic-util` and the dev-dependency subtree remain.
+### Status: the build is proven, the packaging is not finished
 
-Things that were tried and do **not** work, so they are not worth repeating:
+The source build itself works. Run outside Guix with the real toolchain
+(`protobuf gcc-toolchain pkg-config dbus libnftnl libmnl`), all three binaries
+compile and run:
 
-- **Restoring the lock.** `patch-cargo-checksums` stubs every vendored
-  `.cargo-checksum.json`, so with the lock present cargo stops with
-  "unable to verify that `zerocopy-derive v0.8.31` is the same as when the
-  lockfile was generated". This is precisely why the build system deletes it.
-- **A `[source."git+…"] replace-with` stanza** for the one git dependency. That
-  needs a lock file naming the git source ("the source git+… requires a lock
-  file to be present first before it can be used against vendored source
-  code"), which conflicts with the point above.
-- **A line-oriented prune of `test-log`** to cut the dev-dependency subtree. It
-  works where the dependency is an inline table, but where a crate declares its
-  own `[dependencies.test-log]` table the header is removed while the keys stay,
-  and cargo fails with "duplicate key".
+    $ cargo build --offline --release \
+        --package mullvad-daemon --package mullvad-cli --package mullvad-exclude
+        Finished `release` profile [optimized] target(s) in 5m 09s
+    $ ./target/release/mullvad-daemon --version
+    mullvad-daemon 2026.1
+    $ ./target/release/mullvad --version
+    mullvad-cli 2026.1
 
-The clean fix is to stop deriving the vendor set from the lock at all: run
-`cargo vendor` once for this workspace, publish its output as a tarball, and
-point `[source.vendored-sources]` at it with the `.cargo-checksum.json` files
-intact. That keeps the lock usable and makes resolution deterministic. It needs
-somewhere to host the tarball, or a `local-file` alongside the channel.
+(`mullvad-exclude` is a setuid helper and prints "Failed to launch the process"
+unless run as root. That is expected.)
+
+What is **not** finished is reproducing that inside Guix, because of how the
+crate set is supplied. `cargo-build-system` deletes `Cargo.lock` in its
+`configure` phase, so cargo re-resolves from scratch against the vendor
+directory. A from-scratch resolution needs crates that upstream's lock prunes,
+and `guix import crate -f` only emits what the lock contains. Two concrete
+failures result:
+
+    error: failed to select a version for the requirement `env_logger = "^0.10.0"`
+    candidate versions found which didn't match: 0.11.7
+
+    error: failed to select a version for the requirement `tipsy = "^0.6.5"`
+    version 0.6.5 is yanked
+
+The second one appears the moment the lock is removed, which proves the lock is
+load-bearing: **the working recipe is `cargo vendor` output (real
+`.cargo-checksum.json`) with upstream's `Cargo.lock` kept.**
+
+Things tried that do **not** work, so they are not worth repeating:
+
+- **Restoring the lock against a `guix import`-derived vendor tree.**
+  `patch-cargo-checksums` stubs every vendored `.cargo-checksum.json`, so cargo
+  stops with "unable to verify that `zerocopy-derive v0.8.31` is the same as
+  when the lockfile was generated". This is why the build system deletes the
+  lock. With `cargo vendor` checksums the same lock verifies fine.
+- **A `[source."git+…"] replace-with` stanza** for the git dependency. It needs
+  a lock naming the git source ("the source git+… requires a lock file to be
+  present first before it can be used against vendored source code"), which
+  collides with the stubbed-checksum problem above.
+- **A line-oriented prune of `test-log`** to cut the dev-dependency subtree.
+  Fine for inline tables, but where a crate declares its own
+  `[dependencies.test-log]` table the header goes while the keys stay, and cargo
+  fails with "duplicate key".
+
+### Outstanding work
+
+Ship the `cargo vendor` tree as a tarball (1.2 GB, so it cannot be committed)
+and point `[source.vendored-sources]` at it with the lock kept. It needs
+somewhere to host the tarball, or a `local-file` alongside the channel. Most of
+that 1.2 GB is Windows-only crates (`windows`, `winapi`, ~500 MB) that Linux
+never compiles, so pruning those before tarballing is worth doing.
 
 The Electron GUI is a separate, larger gap — see above and below.
 
