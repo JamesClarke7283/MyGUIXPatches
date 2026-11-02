@@ -178,6 +178,17 @@
 
       #:phases
       #~(modify-phases %standard-phases
+          ;; Bun records process.execPath into the generated build files and
+          ;; then uses it to run its own .ts helpers.  Under Guix that value is
+          ;; the glibc loader -- the bootstrap bun can only start through it --
+          ;; so ninja ends up executing a .ts file with the dynamic linker
+          ;; ("invalid ELF header").  There is no upstream knob, so this patch
+          ;; adds one: BUN_JS_RUNTIME wins over process.execPath when set.
+          (add-after 'unpack 'patch-js-runtime-override
+            (lambda _
+              (substitute* "scripts/build/configure.ts"
+                (("\\? q\\(process\\.execPath\\)")
+                 "? q(process.env.BUN_JS_RUNTIME ?? process.execPath)"))))
           (delete 'configure)
 
           (replace 'build
@@ -212,9 +223,19 @@
 
               ;; Keep anything the script would otherwise scatter in $HOME, and
               ;; stop it reporting the run to anyone.
+              ;; The dependency fetches cache under $HOME/.bun/build-cache, and
+              ;; $HOME is /homeless-shelter in the sandbox, which is not
+              ;; writable -- hence EACCES.  Give it a real home.
+              (setenv "HOME" (string-append (getcwd) "/.home"))
+              (mkdir-p (getenv "HOME"))
+              (setenv "XDG_CACHE_HOME" (string-append (getenv "HOME") "/.cache"))
               (setenv "BUN_INSTALL_CACHE_DIR"
                       (string-append (getcwd) "/.bun-install-cache"))
               (setenv "DO_NOT_TRACK" "1")
+
+              ;; Hand the patched configure its jsRuntime; see the patch above.
+              (setenv "BUN_JS_RUNTIME"
+                      #$(file-append bun-bootstrap "/bin/bun"))
 
               ;; Run upstream's own build script with the bootstrap Bun.  It
               ;; generates build.ninja and then drives it.
