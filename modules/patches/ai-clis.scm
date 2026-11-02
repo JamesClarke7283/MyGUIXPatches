@@ -162,7 +162,40 @@ int main(int argc, char **argv) {
                         port)))
                    (invoke gcc "-O2" "-o" target source)
                    (chmod target #o555)
-                   (delete-file source))
+                   (delete-file source)
+
+                 ;; A desktop entry, so T3 Code can be launched from the
+                 ;; application menu rather than only from a terminal.  There is
+                 ;; no Electron client: `t3' starts a local HTTP server and opens
+                 ;; the browser, which is what this entry does too.
+                 (let ((apps (string-append %output "/share/applications"))
+                       (icons (string-append %output "/share/icons/hicolor/512x512/apps")))
+                   (mkdir-p apps)
+                   (mkdir-p icons)
+                   ;; Upstream ships favicons and an apple-touch-icon; the latter
+                   ;; is the largest and works as a menu icon.
+                   (for-each (lambda (size name)
+                               (let* ((dir (string-append %output "/share/icons/hicolor/"
+                                                          size "/apps"))
+                                      (src (string-append bundle "/client/" name)))
+                                 (mkdir-p dir)
+                                 (when (file-exists? src)
+                                   (copy-file src (string-append dir "/t3-code.png")))))
+                             '("512x512" "32x32" "16x16")
+                             '("apple-touch-icon.png" "favicon-32x32.png"
+                               "favicon-16x16.png"))
+                   (call-with-output-file (string-append apps "/t3-code.desktop")
+                     (lambda (port)
+                       (format port "[Desktop Entry]~%")
+                       (format port "Type=Application~%")
+                       (format port "Name=T3 Code~%")
+                       (format port "Comment=Coding agent client~%")
+                       (format port "Exec=~a~%" (string-append %output "/bin/t3"))
+                       (format port "Icon=t3-code~%")
+                       (format port "Terminal=false~%")
+                       (format port "Categories=Development;~%")
+                       (format port "Keywords=agent;code;ai;~%")
+                       (format port "StartupNotify=false~%")))))
                  #t))))
     (native-inputs
      (list gzip gcc-toolchain
