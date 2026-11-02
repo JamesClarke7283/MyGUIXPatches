@@ -3,7 +3,18 @@
 ;;; mullvad-vpn --- the Mullvad VPN daemon and command-line client, built
 ;;; from source.
 ;;;
-;;; Upstream: https://github.com/mullvad/mullvadvpn-app, tag 2026.5, GPL-3.0.
+;;; Upstream: https://github.com/mullvad/mullvadvpn-app, tag 2026.1, GPL-3.0.
+;;;
+;;; Why 2026.1 and not the newest release: upstream's Cargo.toml raises
+;;; rust-version as it goes, and the daemon will not build with a compiler
+;;; older than that.  Guix ships rust 1.93.0 and has no rust@1.95, so:
+;;;
+;;;   2026.5 / 2026.4 / 2026.3   rust-version = 1.95.0   unbuildable
+;;;   2026.2                     rust-version = 1.94.0   unbuildable
+;;;   2026.1                     rust-version = 1.91.0   buildable  <-- this
+;;;
+;;; Bumping this package therefore means either picking a tag whose
+;;; rust-version is <= Guix's rust, or packaging a newer rust first.
 ;;;
 ;;; Scope
 ;;; -----
@@ -58,10 +69,10 @@
 ;;; properly needs a TOML parser, which build phases cannot have (no
 ;;; (ice-9 rdelim), no srfi-1, no TOML reader in scope).
 ;;;
-;;; The clean fix is to stop deriving the vendor set from the lock at all:
-;;; run `cargo vendor' once, ship its output as a tarball, and point
-;;; [source.vendored-sources] at it with the .cargo-checksum.json files intact.
-;;; That is the outstanding work recorded in README.md.
+;;; 2026.1 does not have that problem: its lock contains test-log but no
+;;; optional dependency that a from-scratch resolution then demands, so
+;;; vendoring from the lock is self-consistent here.  (2026.5 was not, which
+;;; is why this package is pinned back.)
 ;;;
 ;;; Runtime
 ;;; -------
@@ -85,13 +96,17 @@
   #:use-module (guix build utils)
   #:use-module (guix build-system cargo)
   #:use-module (guix licenses)
+
+  #:use-module (gnu packages glib)           ; dbus
+  #:use-module (gnu packages linux)          ; libmnl, libnftnl
   #:use-module (gnu packages pkg-config)
+  #:use-module (gnu packages protobuf)       ; protobuf (protoc)
   #:use-module (patches crates mullvad))
 
 (define-public mullvad-vpn
   (package
     (name "mullvad-vpn")
-    (version "2026.5")
+    (version "2026.1")
     (source
      (origin
        (method url-fetch)
@@ -99,7 +114,7 @@
                            "archive/refs/tags/" version ".tar.gz"))
        (file-name (string-append name "-" version ".tar.gz"))
        (sha256
-        (base32 "08sd6yh9l0m52d7sgpi5gwm6agw2rq6zz2gd8z93gw31imfk8cx1"))))
+        (base32 "17x81vdp80vd44g1nx5h946nlzc6silmbyv1dgab3y3cx2ykl3h1"))))
     (build-system cargo-build-system)
     (arguments
      (list
@@ -213,6 +228,39 @@
                                  (newline port))
                                kept)))))
 
+              ;; Remove a whole dependency table, e.g. [dependencies.env_logger]
+              ;; plus the keys that belong to it, up to the next table header.
+              ;; Needed because some crates declare a dependency in that
+              ;; multi-line form rather than as an inline table: dropping only
+              ;; the matching line leaves the header gone but the keys behind,
+              ;; which cargo rejects as duplicate keys in the previous table.
+              (define (drop-table manifest section)
+                (let* ((lines (call-with-input-file manifest read-all-lines))
+                       (kept
+                        (let loop ((rest lines) (skipping? #f) (kept '()))
+                          (cond
+                           ((null? rest) (reverse kept))
+                           ;; Any new table header ends a skip, and a header
+                           ;; equal to SECTION starts one.
+                           ((and (>= (string-length (car rest)) 1)
+                                 (char=? (string-ref (car rest) 0) #\[))
+                            (if (string=? (string-trim-right (car rest)) section)
+                                (loop (cdr rest) #t kept)
+                                (loop (cdr rest) #f
+                                      (cons (car rest) kept))))
+                           (skipping? (loop (cdr rest) #t kept))
+                           (else (loop (cdr rest) #f
+                                       (cons (car rest) kept)))))))
+                (format (current-error-port)
+                        "removing ~a from ~a~%" section manifest)
+                (make-file-writable manifest)
+                (call-with-output-file manifest
+                  (lambda (port)
+                    (for-each (lambda (line)
+                                (display line port)
+                                (newline port))
+                              kept)))))
+
               ;; unpack-rust-crates names each vendor directory after the
               ;; origin's store basename.  For a crates.io origin that is
               ;; predictable, but udp-over-tcp comes from a git fork and its
@@ -246,7 +294,79 @@
                 ;; from-scratch resolution wants it anyway, so remove the
                 ;; dependency and the feature that names it.
                 (drop-lines-mentioning (string-append crate-dir "/Cargo.toml")
-                                       '("cadence")))))
+                                       '("cadence"))
+
+                ;; 2026.1's udp-over-tcp is 0.3.0, which declares
+                ;;
+                ;;   [dependencies.env_logger]
+                ;;   version = "0.10.0"
+                ;;
+                ;; for its src/bin/ helpers.  Upstream's lock has no 0.10 line
+                ;; at all (mullvad itself uses 0.11.7), so the resolver fails
+                ;; with
+                ;;
+                ;;   failed to select a version for the requirement
+                ;;   `env_logger = "^0.10.0"`
+                ;;   candidate versions found which didn't match: 0.11.7
+                ;;
+                ;; This one is a table rather than an inline declaration, so it
+                ;; needs drop-table; the feature that named it ("cli") goes with
+                ;; the same section-scan below.
+                (drop-table (string-append crate-dir "/Cargo.toml")
+                            "[dependencies.env_logger]")
+
+                ;; The git checkout ships its own Cargo.lock, which pins
+                ;; env_logger 0.10.0.  As a path dependency inside our
+                ;; workspace that file is noise, but cargo still reads it, so
+                ;; removing the dependency table above is not enough on its
+                ;; own.  Drop nested lock files from the whole vendor tree:
+                ;; no vendored crate is ever built as its own workspace root
+                ;; here, and a stale entry in one of them can resurrect a
+                ;; requirement this build cannot satisfy.
+                ;;
+                ;; NB: (guix build utils)' find-files matches its regexp against
+                ;; each entry's path *relative to the start directory*, so an
+                ;; anchored "^Cargo\.lock$" never matches a nested file
+                ;; ("rust-foo-1.0/Cargo.lock") and silently deletes nothing.
+                ;; Leave both ends unanchored.  Getting this wrong is invisible:
+                ;; the phase still succeeds, and the only symptom is the
+                ;; resolver insisting on env_logger 0.10.0 a second time.
+                ;;
+                ;; The crates are copied out of the store, so their
+                ;; directories are read-only and delete-file would fail with
+                ;; "Permission denied"; 'strip-vendored-prebuilts chmods the
+                ;; tree, but that phase runs later, so do it here as well.
+                (invoke "chmod" "-R" "u+w" vendor-dir)
+                (let ((locks (find-files vendor-dir "Cargo\\.lock")))
+                  (format (current-error-port)
+                          "deleting ~a nested lock file(s) under ~a~%"
+                          (length locks) vendor-dir)
+                  (for-each (lambda (lock)
+                              (format (current-error-port)
+                                      "  dropping ~a~%" lock)
+                              (delete-file lock))
+                            locks))
+                ;; Show what the manifest looks like *after* the rewrites above.
+                ;; The resolver kept demanding env_logger ^0.10.0 even though
+                ;; the table had been removed, so print the surviving lines that
+                ;; mention it: either the edit is not reaching the file cargo
+                ;; reads, or a second declaration survives somewhere.
+                (let ((manifest (string-append crate-dir "/Cargo.toml")))
+                  (format (current-error-port)
+                          "manifest ~a after rewriting:~%" manifest)
+                  (for-each (lambda (line)
+                              (format (current-error-port) "  | ~a~%" line))
+                            (call-with-input-file manifest read-all-lines)))
+                (invoke "grep" "-rn" "env_logger" vendor-dir)
+                ;; Also drop the git checkout's lock explicitly: it is the one
+                ;; that pins env_logger 0.10.0, and if the sweep above missed it
+                ;; for any reason the resolver fails again with the same
+                ;; message, so verify rather than assume.
+                (let ((git-lock (string-append crate-dir "/Cargo.lock")))
+                  (when (file-exists? git-lock)
+                    (format (current-error-port)
+                            "dropping git checkout lock ~a~%" git-lock)
+                    (delete-file git-lock))))))
 
           ;; check-for-pregenerated-files rejects .a/.dll/.dylib/.exe/.lib
           ;; anywhere under the build tree, and the vendored crate sources carry
@@ -282,10 +402,22 @@
                           '("mullvad-daemon"
                             "mullvad"
                             "mullvad-exclude"))))))))
-    ;; Not needed by the crates we build, but several -sys crates in the
-    ;; workspace look for pkg-config at configure time.
+    ;; protoc: mullvad-management-interface/build.rs shells out to it and
+    ;; panics with "Could not find `protoc'" without it.
+    ;;
+    ;; gcc-toolchain: several -sys crates build C, and cargo looks for plain
+    ;; "cc" on PATH.
+    ;;
+    ;; pkg-config: libdbus-sys looks for dbus-1.pc.
     (native-inputs
-     (list pkg-config))
+     (list protobuf
+           pkg-config))
+    ;; dbus: libdbus-sys.  libnftnl and libmnl: mullvad-daemon links -lnftnl
+    ;; and -lmnl for its firewall/kill-switch rules.
+    (inputs
+     (list dbus
+           libmnl
+           libnftnl))
     (synopsis "Mullvad VPN daemon and command-line client")
     (description
      "This package provides the Rust components of the Mullvad VPN client:
