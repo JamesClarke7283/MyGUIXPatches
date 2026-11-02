@@ -203,7 +203,7 @@
                        #$(file-append bun-bootstrap "/bin") ":"
                        #$(file-append clang-23 "/bin") ":"
                        #$(file-append lld-23 "/bin") ":"
-                       #$(file-append llvm "/bin") ":"
+                       #$(file-append llvm-23 "/bin") ":"
                        #$(file-append binutils "/bin") ":"
                        #$(file-append nasm "/bin") ":"
                        #$(file-append cmake "/bin") ":"
@@ -282,7 +282,7 @@ looked for build/release/bun, build/debug/bun-debug and build/bun")))))
            ;; LLVM/clang 23.1.1, as enforced by the build system.
            clang-23
            lld-23
-           llvm
+           llvm-23
 
            ;; strip and as.
            binutils
