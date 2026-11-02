@@ -97,16 +97,19 @@
   #:use-module (guix build-system cargo)
   #:use-module (guix licenses)
 
+  #:use-module (gnu packages base)            ; binutils
+  #:use-module (gnu packages commencement)   ; gcc-toolchain
   #:use-module (gnu packages glib)           ; dbus
   #:use-module (gnu packages linux)          ; libmnl, libnftnl
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages protobuf)       ; protobuf (protoc)
-  #:use-module (patches crates mullvad))
+  #:use-module (patches crates mullvad)
+  #:use-module (patches rust-nightly))
 
 (define-public mullvad-vpn
   (package
     (name "mullvad-vpn")
-    (version "2026.1")
+    (version "2026.5")
     (source
      (origin
        (method url-fetch)
@@ -114,7 +117,7 @@
                            "archive/refs/tags/" version ".tar.gz"))
        (file-name (string-append name "-" version ".tar.gz"))
        (sha256
-        (base32 "17x81vdp80vd44g1nx5h946nlzc6silmbyv1dgab3y3cx2ykl3h1"))))
+        (base32 "08sd6yh9l0m52d7sgpi5gwm6agw2rq6zz2gd8z93gw31imfk8cx1"))))
     (build-system cargo-build-system)
     (arguments
      (list
@@ -136,6 +139,9 @@
       ;; '("--release" ...) therefore gets evaluated as code and dies with
       ;; `Wrong type to apply: "--release"'.  Upstream uses the same ''(...)
       ;; idiom, e.g. gnu/packages/rust-apps.scm.
+      ;; Guix ships rust 1.93.0, but 2026.5 declares rust-version = "1.95.0"
+      ;; and cargo-build-system refuses to build with anything older.
+      #:rust rust-1.99
       #:cargo-build-flags
       ''("--release"
          "--package" "mullvad-daemon"
@@ -150,6 +156,25 @@
 
       #:phases
       #~(modify-phases %standard-phases
+          ;; gcc's collect2 shells out to `as' and `ld' by name, and
+          ;; cargo-build-system only puts gcc on PATH, not binutils, so
+          ;; linking fails with "posix_spawnp: No such file or directory".
+          (add-before 'build 'set-toolchain-path
+            (lambda _
+              ;; rustc derives its sysroot from /proc/self/exe, which under our
+              ;; loader shim is ld.so -- so every -B/-L flag it emits contains the
+              ;; literal text "<sysroot>" and the linker cannot be found.
+              ;; State the sysroot explicitly instead.
+              (setenv "RUSTFLAGS"
+                      (string-append "--sysroot=" #$(file-append rust-1.99 "/libexec/rust") " " (or (getenv "RUSTFLAGS") "")))
+              (setenv "CC"        #$(file-append gcc-toolchain "/bin/gcc"))
+              (setenv "CXX"       #$(file-append gcc-toolchain "/bin/g++"))
+              (setenv "LD"        #$(file-append binutils "/bin/ld"))
+              (setenv "AR"        #$(file-append binutils "/bin/ar"))
+              (setenv "PATH"
+                      (string-append #$(file-append binutils "/bin") ":"
+                                     #$(file-append gcc-toolchain "/bin") ":"
+                                     (or (getenv "PATH") "")))))
           ;; Point the git-sourced dependency at the vendored copy.
           ;;
           ;; Dead ends, recorded so they are not retried:
@@ -411,7 +436,8 @@
     ;; pkg-config: libdbus-sys looks for dbus-1.pc.
     (native-inputs
      (list protobuf
-           pkg-config))
+           pkg-config
+           gcc-toolchain))
     ;; dbus: libdbus-sys.  libnftnl and libmnl: mullvad-daemon links -lnftnl
     ;; and -lmnl for its firewall/kill-switch rules.
     (inputs

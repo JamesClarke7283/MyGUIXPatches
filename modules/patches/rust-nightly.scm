@@ -74,7 +74,7 @@
   #:use-module (guix gexp)
   #:use-module (guix packages)
   #:use-module (guix build-system trivial)
-  #:use-module (guix licenses)
+  #:use-module ((guix licenses) #:hide (zlib))
   #:use-module (gnu packages base)
   #:use-module (gnu packages commencement)
   #:use-module (gnu packages compression)
@@ -206,4 +206,122 @@ is where cargo looks when @code{-Zbuild-std} asks for the standard library
 sources.")
     (home-page "https://rust-lang.org")
     ;; Upstream dual-licenses under MIT or Apache-2.0.
+    (license (list expat asl2.0))))
+
+;;;
+;;; Stable Rust, for packages that need something newer than Guix's 1.93.0.
+;;;
+
+(define %rust-stable-version "1.99.1")
+
+;;; Return a package carrying COMPONENT of the stable release, so it can be
+;;; passed as an ordinary input (Guix rejects raw origins in a package's inputs).
+;;; rust-src has no target triplet in its file name; rustc and rust-std do.
+(define (rust-stable-carrier name component)
+  (let* ((has-triplet (not (string=? component "rust-src")))
+         (file (if has-triplet
+                   (string-append component "-" %rust-stable-version
+                                  "-x86_64-unknown-linux-gnu.tar.xz")
+                   (string-append component "-" %rust-stable-version ".tar.xz")))
+         (hash (cond ((string=? component "rustc")
+                      "07q9y8vkw7472gb6y63n8lxld1wb1as6ah3fgwg8d44aq3wmzw1g")
+                     ((string=? component "cargo")
+                      "12mxf2zawkji7lyz6rjmqz8lx3b5ql95r986zdg5jka094cm5wsk")
+                     ((string=? component "rust-std")
+                      "0n6rwmgci12r9cmlpygsvcd1dvglzmmqg408hairwnxz4m10g6qh")
+                     ((string=? component "rust-src")
+                      "0bgjbgmhxc65bzi95i2jnm7vlm24rfzvxxqxaxrnnm6v8n6ai1g4")
+                     (else
+                      (error "no known hash for Rust component" component)))))
+    (package
+      (name name)
+      (version %rust-stable-version)
+      (source
+       (origin
+         (method url-fetch)
+         (uri (string-append "https://static.rust-lang.org/dist/" file))
+         (file-name file)
+         (sha256 (base32 hash))))
+      (build-system trivial-build-system)
+      (arguments
+       (list #:modules '((guix build utils))
+             #:builder
+             #~(begin
+                 (use-modules (guix build utils))
+                 (let ((out (assoc-ref %outputs "out")))
+                   (mkdir-p out)
+                   (copy-file (assoc-ref %build-inputs "source")
+                              (string-append out "/component.tar.xz"))))))
+      (synopsis "Upstream tarball for a component of the stable Rust release")
+      (description
+       "This package carries one tarball from the stable Rust release so it can be
+passed as an ordinary build input.  @code{rust-1.99} does the installation.")
+      (home-page "https://rust-lang.org")
+      (license (list expat asl2.0)))))
+
+;;; Guix ships rust 1.93.0 and carries nothing newer, but mullvad-vpn 2026.5
+;;; declares rust-version = "1.95.0" and cargo refuses to build with an older
+;;; compiler.  This package provides the current stable release instead, which
+;;; satisfies that and anything else with a similar floor.
+;;;
+;;; It is installed exactly like rust-nightly: the binaries stay pristine and
+;;; compiled C shims start them through the store's glibc loader.  It also
+;;; carries rust-std, which the rustc component alone does not include -- without
+;;; it every crate fails with "can't find crate for `std'".
+(define-public rust-1.99
+  (package
+    (name "rust")
+    (version %rust-stable-version)
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://static.rust-lang.org/dist/"
+                           "rustc-" version "-x86_64-unknown-linux-gnu.tar.xz"))
+       (file-name (string-append "rustc-" version
+                                 "-x86_64-unknown-linux-gnu.tar.xz"))
+       (sha256
+        (base32 "07q9y8vkw7472gb6y63n8lxld1wb1as6ah3fgwg8d44aq3wmzw1g"))))
+    ;; cargo-build-system asks its #:rust argument for a "cargo" output.
+    (outputs (cons "cargo" (list "out")))
+    (build-system trivial-build-system)
+    (arguments
+     (list #:modules '((patches rust-nightly-build)
+                       (guix build utils))
+           #:builder
+           #~(begin
+               (use-modules (patches rust-nightly-build))
+               (build-rust-nightly %build-inputs %outputs
+                                    #:cargo-input-name "rust-1.99-cargo"
+                                    #:std-input-name "rust-1.99-rust-std"
+                                    #:src-input-name "rust-1.99-rust-src"
+                                    ;; rust-src and rust-std tarballs carry the
+                                    ;; whole lib/rustlib path below two top-level
+                                    ;; components.
+                                    #:src-strip 2))))
+    (native-inputs
+     (list tar
+           xz
+           binutils
+           gcc-toolchain
+           (rust-stable-carrier "rust-1.99-cargo" "cargo")
+           (rust-stable-carrier "rust-1.99-rust-std" "rust-std")
+           (rust-stable-carrier "rust-1.99-rust-src" "rust-src")))
+    (inputs
+     (list glibc
+           (list gcc "lib")
+           zlib))
+    (supported-systems '("x86_64-linux"))
+    (synopsis "Stable Rust, newer than the one in Guix")
+    (description
+     "This package provides @command{rustc}, @command{cargo} and
+@command{rustdoc} plus the standard library and sources for the current stable
+Rust release.
+
+It exists because Guix ships rust 1.93.0 and nothing newer, while
+@code{mullvad-vpn} 2026.5 declares @code{rust-version = \"1.95.0\"} and refuses
+to build with an older compiler.
+
+The binaries expect the FHS loader, so they are started through the store's
+glibc loader by small compiled shims, exactly as in @code{rust-nightly}.")
+    (home-page "https://rust-lang.org")
     (license (list expat asl2.0))))
