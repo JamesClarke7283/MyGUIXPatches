@@ -28,15 +28,26 @@ A file `modules/patches/vpn.scm` provides the module `(patches vpn)`.
 
 ## Using the channel
 
-`~/.config/guix/channels.scm` already lists it, before nonguix and the default
-channels so that these packages win over upstream ones:
+The channel declares nonguix as a dependency (see `.guix-channel`), because
+some package modules use `(nonguix build-system chromium-binary)` and
+`(nonguix packages electron)`.  Guix only puts a channel's declared
+dependencies on the module load path when compiling it, so listing nonguix
+first in `channels.scm` would not be enough on its own.
+
+`~/.config/guix/channels.scm` should list both, for example:
 
     (cons* (channel
+            (name 'nonguix)
+            (url "https://gitlab.com/nonguix/nonguix")
+            (introduction ...))
+           (channel
             (name 'my-guix-patches)
             (url "file:///home/james/Projects/MyGUIXPatches")
             (branch "main"))
-           (channel (name 'nonguix) ...)
            %default-channels)
+
+Our package names do not collide with nonguix's, so the order only matters if
+a future name clash appears.
 
 The channel is a git repository, so it needs at least one commit before
 `guix pull` will accept it. Then:
