@@ -80,8 +80,10 @@
   mullvad-vpn-configuration?
   (package            mullvad-vpn-configuration-package
                       (default mullvad-vpn))
-  ;; Directory holding wireguard-go.  #f means "leave it to the daemon",
-  ;; which resolves this relative to its own executable.
+  ;; Directory holding wireguard-go, relays.json and ca.crt.  #f means
+  ;; "leave it to the daemon", which resolves this relative to its own
+  ;; executable.  May be a string or a file-like object, e.g.
+  ;; (file-append mullvad-vpn-gui "/libexec/mullvad-vpn/resources").
   (resource-directory mullvad-vpn-configuration-resource-directory
                       (default #f))
   ;; Where the daemon keeps settings.json (account number, relay
@@ -119,14 +121,15 @@ CONFIG."
                         "--disable-log-to-file")))
 
          ;; The daemon reads its paths from the environment, not from
-         ;; command-line flags.
+         ;; command-line flags.  RESOURCE-DIRECTORY may be a string or a
+         ;; file-like object, so build the environment as a gexp and let
+         ;; #$ lower it; #$@ splices the optional resource entry.
          (environment
-          (append (list (string-append "MULLVAD_SETTINGS_DIR="
-                                       settings-directory))
-                  (if resource-directory
-                      (list (string-append "MULLVAD_RESOURCE_DIR="
-                                           resource-directory))
-                      '()))))
+          #~(list (string-append "MULLVAD_SETTINGS_DIR=" #$settings-directory)
+                  #$@(if resource-directory
+                         (list #~(string-append "MULLVAD_RESOURCE_DIR="
+                                                #$resource-directory))
+                         '()))))
 
     (list
      (shepherd-service
@@ -138,7 +141,7 @@ CONFIG."
       (requirement '(user-processes))
       (start #~(make-forkexec-constructor
                 (list #$@arguments)
-                #:environment-variables (list #$@environment)))
+                #:environment-variables #$environment))
       (stop #~(make-kill-destructor))))))
 
 ;;;

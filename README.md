@@ -136,13 +136,17 @@ client resolves its helper binaries through `process.resourcesPath`:
 `resources/relays.json`, `resources/ca.crt` and `resources/wireguard-go` are
 what the daemon needs.  Point the service at that directory:
 
+    (use-modules (patches services vpn) (patches mullvad-gui))
+
     (service mullvad-vpn-service-type
              (mullvad-vpn-configuration
               (resource-directory
-               "/gnu/store/...-mullvad-vpn-gui-2026.5/libexec/mullvad-vpn/resources")))
+               (file-append mullvad-vpn-gui
+                            "/libexec/mullvad-vpn/resources"))))
 
-`resource-directory` takes a string, so use the store path printed by
-`guix build mullvad-vpn-gui`.
+`resource-directory` accepts a string or a file-like object, so the
+`file-append` above keeps the GUI package in the system closure and therefore
+protected from `guix gc`.
 
 The client starts and shows "disconnected" even while the daemon is not
 running, which is useful for checking the build:
