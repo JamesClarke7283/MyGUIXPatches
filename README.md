@@ -14,6 +14,7 @@ software that is not in Guix or nonguix, so it can be built locally from source.
       bun.scm                  (patches bun)            Bun, built from source
       bun-bootstrap.scm        (patches bun-bootstrap)  prebuilt Bun seed for the above
       coding-agents.scm        (patches coding-agents)  oh-my-pi ("omp") and its addons
+      ai-clis.scm              (patches ai-clis)        t3-code, codex, claude-code
       crates/mullvad.scm       (patches crates mullvad) generated crate origins
       services/vpn.scm         (patches services vpn)   Guix System service
     tools/
@@ -415,6 +416,60 @@ is nothing to compile. Two pieces of `omp` remain non-reproducible:
 
 So: `omp` works, and the only prebuilt pieces in this channel are Bun (as a
 bootstrap seed, and only until `bun` builds) and this addon.
+
+## Agent CLIs: `t3-code`, `codex`, `claude-code`
+
+`(patches ai-clis)` provides three agent command-line tools that upstream ships
+only as prebuilt artifacts, so each is a fixed-output origin rather than a source
+build:
+
+| Package | Upstream artifact | Why no source build |
+| --- | --- | --- |
+| `t3-code` | `t3-0.1.6-linux-x64.tar.gz` | Node single-executable application |
+| `codex` | `@openai/codex@0.166.0-linux-x64` | Rust, but vendoring to 1308 crates / 1.8 GB |
+| `claude-code` | `@anthropic-ai/claude-code-linux-x64` | closed source |
+
+`codex` is statically linked and runs as-is. The other two carry a PT_INTERP of
+`/lib64/ld-linux-x86-64.so.2`, so a small compiled C shim starts them through the
+store's glibc loader.
+
+### `t3-code` and `import.meta.dirname`
+
+`t3` is a Node single-executable application: one ELF with the JavaScript
+appended. At startup it derives `import.meta.dirname` from the path of the ELF
+interpreter it was started through, and looks for its web client and its
+resource-monitor helper relative to that path. Started through glibc's store
+loader, `import.meta.dirname` was `<glibc>/lib`, so `t3` looked for
+`<glibc>/lib/client`, found nothing, and answered every request with
+
+    503 No static directory configured and no dev URL set.
+
+`require('@cursor/sdk')` failed for the same reason. The fix is to keep a copy of
+the loader *inside* the bundle, beside `client/`, `node_modules/` and
+`resource-monitor/`, and to point the shim at that copy:
+
+    <out>/libexec/t3/ld-linux-x86-64.so.2   copied from glibc
+    <out>/libexec/t3/client/                upstream's web client
+    <out>/libexec/t3/node_modules/          upstream's bundled modules
+    <out>/libexec/t3/t3                     the single executable
+
+Now `import.meta.dirname` is the bundle directory and every relative lookup lands
+where upstream's layout puts it. The copy is a real file, not a symlink: the
+kernel records the *resolved* path in `/proc/self/exe`, so a symlink to glibc's
+loader would put `import.meta.dirname` back in glibc's store directory.
+
+Verify:
+
+    $ t3 --version
+    t3 v0.1.6
+    $ t3 --port 5000 --no-browser &
+    $ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:5000/
+    200
+
+`bin/t3` also appends `xdg-utils` to `PATH`, because `t3` shells out to
+`xdg-open` to open the browser; without it the server starts but reports
+"browser auto-open unavailable", which looks exactly like the UI failing to
+start.
 
 ## Regenerating the mullvad crate list
 

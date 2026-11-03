@@ -48,14 +48,19 @@
 ;;;   $ codex --version
 ;;;   codex-cli 0.166.0
 ;;;
-;;; `t3' is the awkward one: a Node single-executable application.  Started
-;;; through the loader it aborts with
+;;; `t3' is the awkward one: a Node single-executable application.  A
+;;; single-executable derives `import.meta.dirname' -- and with it where it looks
+;;; for its `client' web assets and its `resource-monitor' helper -- from the
+;;; path of the ELF interpreter it was started through.  Run through glibc's
+;;; store loader, that path is `<glibc>/lib', so `t3' hunted for
+;;; `<glibc>/lib/client', found nothing, and answered every request with
 ;;;
-;;;   Error: Cannot find module '@cursor/sdk'
+;;;   503 No static directory configured and no dev URL set.
 ;;;
-;;; even though that package is in its bundled node_modules, because the
-;;; single-executable resolves its payload relative to where it believes it was
-;;; launched.  Its whole tree is installed so the layout matches what it ships.
+;;; Requiring '@cursor/sdk' failed for the same reason.  The fix is to keep a
+;;; copy of the loader inside the bundle, beside `client' and `node_modules', so
+;;; `import.meta.dirname' is the bundle directory and every relative lookup lands
+;;; where upstream's layout puts it.
 
 (define-module (patches ai-clis)
   #:use-module (guix base32)
@@ -77,9 +82,10 @@
 ;;; Format arguments, in order: node-path, loader, libpath, target, loader,
 ;;; extra-path.
 ;;;
-;;; node-path becomes NODE_PATH.  t3 needs it because its launcher resolves
-;;; @cursor/sdk through the module path rather than from beside itself; claude
-;;; passes an empty string and does not care.
+;;; node-path becomes NODE_PATH.  With the loader installed inside the bundle,
+;;; t3 resolves @cursor/sdk from the node_modules beside it without this, but it
+;;; is kept as a harmless fallback; claude passes an empty string and does not
+;;; care.
 ;;;
 ;;; extra-path is appended to PATH.  t3 shells out to xdg-open to open the
 ;;; browser, and without it the server starts but says "browser auto-open
@@ -147,9 +153,17 @@ int main(int argc, char **argv) {
                       (out  (assoc-ref %outputs "out"))
                       (glibc (assoc-ref %build-inputs "glibc"))
                       (gcc-lib (assoc-ref %build-inputs "gcc"))
-                      (loader (string-append glibc "/lib/ld-linux-x86-64.so.2"))
                       (libpath (string-append glibc "/lib:" gcc-lib "/lib"))
-                      (bundle (string-append out "/libexec/t3")))
+                      (bundle (string-append out "/libexec/t3"))
+                      ;; A Node single-executable derives import.meta.dirname
+                      ;; from the path of the ELF interpreter it was started
+                      ;; through.  Pointing the shim at glibc's own loader made
+                      ;; that <glibc>/lib, so `t3' looked for its client/ and
+                      ;; node_modules/ there and answered every request with
+                      ;; "503 No static directory configured".  Keeping the
+                      ;; loader inside the bundle puts import.meta.dirname where
+                      ;; upstream expects it.
+                      (loader (string-append bundle "/ld-linux-x86-64.so.2")))
                  ;; GNU tar shells out to gzip, and trivial-build-system brings
                  ;; no implicit inputs.
                  (setenv "PATH" (string-append (dirname tar) ":" gzip-bin))
@@ -162,6 +176,13 @@ int main(int argc, char **argv) {
                  (mkdir-p (dirname bundle))
                  (copy-recursively (string-append "t3-" #$version "-linux-x64")
                                    bundle)
+
+                 ;; A real copy, not a symlink: the kernel resolves symlinks
+                 ;; when it records /proc/self/exe, which would put
+                 ;; import.meta.dirname back in glibc's store directory.
+                 (copy-file (string-append glibc "/lib/ld-linux-x86-64.so.2")
+                            loader)
+                 (chmod loader #o555)
 
                  ;; Compile the shim with gcc, then drop it on PATH.
                  (let* ((gcc (string-append (assoc-ref %build-inputs
