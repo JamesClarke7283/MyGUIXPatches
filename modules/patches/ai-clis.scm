@@ -69,24 +69,45 @@
   #:use-module (gnu packages bash)
   #:use-module (gnu packages commencement)  ; gcc-toolchain
   #:use-module (gnu packages compression)   ; gzip
+  #:use-module (gnu packages freedesktop)  ; xdg-utils, for opening a browser
   #:use-module (gnu packages gcc))          ; gcc:lib, for libstdc++
 
 ;;; The C source of a shim that starts a program through the store's ELF loader.
-;;; Format arguments, in order: loader, libpath, target, loader, node-path.
 ;;;
-;;; node-path becomes NODE_PATH; t3 needs it because its launcher resolves
-;;; @cursor/sdk through the module path rather than from beside itself.  It is
-;;; empty for claude, which ignores it.
+;;; Format arguments, in order: node-path, loader, libpath, target, loader,
+;;; extra-path.
+;;;
+;;; node-path becomes NODE_PATH.  t3 needs it because its launcher resolves
+;;; @cursor/sdk through the module path rather than from beside itself; claude
+;;; passes an empty string and does not care.
+;;;
+;;; extra-path is appended to PATH.  t3 shells out to xdg-open to open the
+;;; browser, and without it the server starts but says "browser auto-open
+;;; unavailable", which looks exactly like the UI failing to start.
 (define %shim-c
   "#include <unistd.h>
 #include <stdlib.h>
+#include <string.h>
 
 int main(int argc, char **argv) {
   char **nargv = malloc(sizeof(char *) * (argc + 5));
   char *nodepath = ~s;
+  char *extra = ~s;
   int i = 0;
   if (nargv == NULL) return 126;
   if (nodepath[0] != '\\0') setenv(\"NODE_PATH\", nodepath, 1);
+  if (extra[0] != '\\0') {
+    const char *old = getenv(\"PATH\");
+    char *joined = malloc(strlen(extra) + 1 + (old ? strlen(old) : 0) + 1);
+    if (joined != NULL) {
+      strcpy(joined, extra);
+      if (old != NULL) {
+        strcat(joined, \":\");
+        strcat(joined, old);
+      }
+      setenv(\"PATH\", joined, 1);
+    }
+  }
   nargv[i++] = ~s;
   nargv[i++] = \"--library-path\";
   nargv[i++] = ~s;
@@ -158,6 +179,8 @@ int main(int argc, char **argv) {
                        (display
                         (format #f #$%shim-c
                                 (string-append bundle "/node_modules")
+                                (string-append (assoc-ref %build-inputs "xdg-utils")
+                                               "/bin")
                                 loader libpath (string-append bundle "/t3") loader)
                         port)))
                    (invoke gcc "-O2" "-o" target source)
@@ -202,7 +225,7 @@ int main(int argc, char **argv) {
            binutils
            tar))
     (inputs
-     (list glibc (list gcc "lib")))
+     (list glibc (list gcc "lib") xdg-utils))
     (supported-systems '("x86_64-linux"))
     (synopsis "T3 Code agent client")
     (description
@@ -328,7 +351,7 @@ vendor tree hosted somewhere first.")
                    (mkdir-p (dirname target))
                    (call-with-output-file source
                      (lambda (port)
-                       (display (format #f #$%shim-c "" loader libpath real loader)
+                       (display (format #f #$%shim-c "" "" loader libpath real loader)
                                 port)))
                    (invoke gcc "-O2" "-o" target source)
                    (chmod target #o555)
@@ -339,7 +362,7 @@ vendor tree hosted somewhere first.")
            binutils
            tar))
     (inputs
-     (list glibc (list gcc "lib")))
+     (list glibc (list gcc "lib") xdg-utils))
     (supported-systems '("x86_64-linux"))
     (synopsis "Anthropic Claude Code command-line interface")
     (description
