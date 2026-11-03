@@ -15,6 +15,7 @@ software that is not in Guix or nonguix, so it can be built locally from source.
       bun-bootstrap.scm        (patches bun-bootstrap)  prebuilt Bun seed for the above
       coding-agents.scm        (patches coding-agents)  oh-my-pi ("omp") and its addons
       ai-clis.scm              (patches ai-clis)        t3-code, codex, claude-code
+      t3-desktop.scm           (patches t3-desktop)     t3-code-desktop: native Electron app
       crates/mullvad.scm       (patches crates mullvad) generated crate origins
       services/vpn.scm         (patches services vpn)   Guix System service
     tools/
@@ -470,6 +471,30 @@ Verify:
 `xdg-open` to open the browser; without it the server starts but reports
 "browser auto-open unavailable", which looks exactly like the UI failing to
 start.
+
+### The desktop application: `t3-code-desktop`
+
+`t3-code` is the CLI: it serves the web client and opens a browser. For a native window, install `t3-code-desktop` as well. It is the Electron shell upstream ships as
+
+    T3-Code-0.1.6-x86_64.AppImage
+
+a standard electron-builder AppImage whose payload is a squashfs image starting at byte offset 944632 (printed by `--appimage-offset`). The recipe therefore extracts it with `unsquashfs -o`, which needs neither FUSE nor `/proc/self/exe` — both awkward in a Guix build sandbox.
+
+The AppImage bundles Electron 44.10.0 together with the application's native modules (node-pty, `@napi-rs/keyring`, ffi-rs, xa11y), prebuilt for that exact Electron ABI. nonguix's `electron` is 41.x, so it is deliberately **not** substituted: loading those `.node` files under a different major version fails with a `NODE_MODULE_VERSION` mismatch. The bundled Electron is used as-is.
+
+The recipe is built with nonguix's `chromium-binary-build-system`, which patches the FHS interpreter to the store's loader, sets a RUNPATH covering the whole Electron library set, and wraps the launcher. One phase is replaced: the build system's own wrapper does not put the application's own directory on `LD_LIBRARY_PATH`, and it resolves fontconfig under a `fontconfig-minimal` label that is easy to get wrong, so the recipe supplies its own wrapper.
+
+Two details matter at run time:
+
+* `chrome-sandbox` cannot keep its setuid bit in the store. Chromium then uses the unprivileged user-namespace sandbox, which works on Guix System as long as unprivileged user namespaces are enabled (the stock kernel configuration allows them).
+* The wrapper sets `ELECTRON_OZONE_PLATFORM_HINT=auto`, so Electron picks Wayland or X11 by itself.
+
+Verify by launching it from the menu, or check the app's log for
+
+    INFO: backend ready ... url: http://127.0.0.1:3773/
+    INFO: main window created
+
+The desktop entry is `t3code.desktop` (`Name=T3 Code`). The CLI's browser entry is renamed `T3 Code (Web)` so the two do not collide in the menu.
 
 ## Regenerating the mullvad crate list
 

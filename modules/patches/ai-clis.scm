@@ -232,8 +232,11 @@ int main(int argc, char **argv) {
                      (lambda (port)
                        (format port "[Desktop Entry]~%")
                        (format port "Type=Application~%")
-                       (format port "Name=T3 Code~%")
-                       (format port "Comment=Coding agent client~%")
+                       ;; The native application, installed by
+                       ;; (patches t3-desktop), owns the "T3 Code" menu entry.
+                       ;; This one stays available as the browser-based client.
+                       (format port "Name=T3 Code (Web)~%")
+                       (format port "Comment=Coding agent client, in the browser~%")
                        (format port "Exec=~a~%" (string-append %output "/bin/t3"))
                        (format port "Icon=t3-code~%")
                        (format port "Terminal=false~%")
