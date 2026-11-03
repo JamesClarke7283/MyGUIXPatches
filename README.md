@@ -16,6 +16,7 @@ software that is not in Guix or nonguix, so it can be built locally from source.
       coding-agents.scm        (patches coding-agents)  oh-my-pi ("omp") and its addons
       ai-clis.scm              (patches ai-clis)        t3-code, codex, claude-code
       t3-desktop.scm           (patches t3-desktop)     t3-code-desktop: native Electron app
+      antigravity.scm          (patches antigravity)    Google Antigravity (Electron app)
       crates/mullvad.scm       (patches crates mullvad) generated crate origins
       services/vpn.scm         (patches services vpn)   Guix System service
     tools/
@@ -495,6 +496,41 @@ Verify by launching it from the menu, or check the app's log for
     INFO: main window created
 
 The desktop entry is `t3code.desktop` (`Name=T3 Code`). The CLI's browser entry is renamed `T3 Code (Web)` so the two do not collide in the menu.
+
+## Google Antigravity (`antigravity`)
+
+`(patches antigravity)` packages the **Antigravity** application. The download
+page also offers a separate "Antigravity IDE (Standalone)" (a VS Code fork);
+that is a different program and is not packaged here.
+
+Upstream publishes Linux builds only as a plain Electron tarball:
+
+    https://storage.googleapis.com/antigravity-public/antigravity-hub/
+      2.28.2-5937220255875072/linux-x64/Antigravity.tar.gz
+
+so the recipe is structurally the same as `t3-code-desktop`: nonguix's
+`chromium-binary-build-system` supplies the Electron library set, patches the
+FHS interpreter, sets the RUNPATH and wraps the launcher. Two extras are needed:
+
+* `resources/bin/language_server` and `resources/bin/webm_encoder` are also
+  spawned by the application and carry FHS interpreters of their own
+  (`/lib64/...` and Google's `/usr/grte/v5/lib64/...`). They are added to the
+  `wrapper-plan`, which patches them as well. Both need only glibc.
+* The tarball has no `.desktop` file and no icon, so `antigravity.desktop` is
+  written by the recipe and the official `apple-touch-icon.png` is fetched as a
+  second origin and installed into the hicolor theme.
+
+The bundled Electron is 44.5.1 and is used as-is, for the same ABI reason as
+`t3-code-desktop`.
+
+`chrome-sandbox` cannot keep its setuid bit in the store, so Chromium uses the
+unprivileged user-namespace sandbox, which works on Guix System with the stock
+kernel configuration.
+
+Verify:
+
+    $ antigravity
+    # log: "Starting app (v2.28.2) ...", "Host bridge server listening on ..."
 
 ## Regenerating the mullvad crate list
 
