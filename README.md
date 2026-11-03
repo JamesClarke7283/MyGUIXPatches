@@ -527,6 +527,27 @@ The bundled Electron is 44.5.1 and is used as-is, for the same ABI reason as
 unprivileged user-namespace sandbox, which works on Guix System with the stock
 kernel configuration.
 
+### Sign-in
+
+The Google sign-in flow is driven by the Go language server, not by the
+Electron main process. It opens the browser by exec'ing `xdg-open`, and it looks
+that up in a *hydrated login-shell* `PATH`: the app runs the user's shell with
+`-ilc 'command env'` and uses that environment for child processes. That `PATH`
+contains `~/.guix-profile/bin` but not the store paths this package's wrapper
+adds, so ordinary Electron wrapping is not enough, and the first click failed
+with
+
+    Failed to open browser: exec: "xdg-open": executable file not found in $PATH
+
+The package therefore installs its own `bin/xdg-open` (a small wrapper that puts
+xdg-utils' own `bin` on `PATH` and delegates to the real `xdg-open`). It lands
+in `~/.guix-profile/bin`, which the hydrated `PATH` does contain.
+
+After signing in, Google redirects to `antigravity://...`. The desktop entry
+declares `MimeType=x-scheme-handler/antigravity;`, so the desktop database maps
+the scheme to `antigravity.desktop`, and the redirect reopens the running app
+(`second-instance`) to complete the flow.
+
 Verify:
 
     $ antigravity

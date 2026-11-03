@@ -32,6 +32,7 @@
 ;;; kernel configuration allows it).
 
 (define-module (patches antigravity)
+  #:use-module (gnu packages freedesktop)
   #:use-module (guix base32)
   #:use-module (guix download)
   #:use-module (guix gexp)
@@ -139,7 +140,7 @@
                   `("ELECTRON_OZONE_PLATFORM_HINT" ":" = ("auto")))
                 #t)))
           (add-after 'install 'install-desktop-integration
-            (lambda* (#:key outputs #:allow-other-keys)
+            (lambda* (#:key inputs outputs #:allow-other-keys)
               (let* ((out (assoc-ref outputs "out"))
                      (app (string-append out "/share/antigravity"))
                      (bin (string-append out "/bin"))
@@ -149,6 +150,25 @@
                 (mkdir-p bin)
                 (symlink (string-append app "/antigravity")
                          (string-append bin "/antigravity"))
+
+                ;; Sign-in is driven by the language server, which runs
+                ;; `xdg-open' and looks it up in the login-shell PATH it
+                ;; hydrates.  That PATH contains ~/.guix-profile/bin but not the
+                ;; store paths this package's wrapper adds, so install an
+                ;; xdg-open here.  It also puts xdg-utils' own bin directory on
+                ;; PATH, because the real xdg-open script shells out to
+                ;; xdg-mime/xdg-settings.
+                (let ((xdg (assoc-ref inputs "xdg-utils"))
+                      (bash (which "bash"))
+                      (xdg-open (string-append bin "/xdg-open")))
+                  (call-with-output-file xdg-open
+                    (lambda (port)
+                      (format port "#!~a~%" bash)
+                      (format port "export PATH=\"~a/bin${PATH:+:}$PATH\"~%"
+                              xdg)
+                      (format port "exec -a \"$0\" \"~a/bin/xdg-open\" \"$@\"~%"
+                              xdg)))
+                  (chmod xdg-open #o555))
 
                 ;; A setuid helper cannot live in the store; Chromium then uses
                 ;; the unprivileged user-namespace sandbox.
@@ -171,12 +191,23 @@
                     (format port "StartupWMClass=antigravity~%")
                     (format port "Categories=Development;~%")
                     (format port "Keywords=agent;code;ai;gemini;~%")
+                    ;; Declare the OAuth callback scheme so the desktop
+                    ;; database indexes this entry as its handler; the app
+                    ;; registers `antigravity://' itself, but Chromium only
+                    ;; hands the redirect back if the handler is known.
+                    (format port "MimeType=x-scheme-handler/antigravity;~%")
                     (format port "StartupNotify=true~%")))
 
                 (mkdir-p icon-dir)
                 (copy-file #$%antigravity-icon
                            (string-append icon-dir "/antigravity.png"))
                 #t))))))
+    ;; The Go language server opens the browser by exec'ing `xdg-open',
+    ;; searching the login-shell PATH it hydrates (which includes
+    ;; ~/.guix-profile/bin but not this package's wrapper PATH).  Keeping
+    ;; xdg-utils as an input lets the install phase drop an xdg-open wrapper in
+    ;; bin/ so that it is visible on that PATH.
+    (inputs (list xdg-utils))
     (supported-systems '("x86_64-linux"))
     (synopsis "Agent-first coding environment from Google")
     (description
