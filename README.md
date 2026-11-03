@@ -17,6 +17,8 @@ software that is not in Guix or nonguix, so it can be built locally from source.
       ai-clis.scm              (patches ai-clis)        t3-code, codex, claude-code
       t3-desktop.scm           (patches t3-desktop)     t3-code-desktop: native Electron app
       antigravity.scm          (patches antigravity)    Google Antigravity (Electron app)
+      mullvad-gui.scm          (patches mullvad-gui)    Mullvad VPN Electron client
+      npm/mullvad-desktop.scm  (patches npm mullvad-desktop)  generated npm origins
       crates/mullvad.scm       (patches crates mullvad) generated crate origins
       services/vpn.scm         (patches services vpn)   Guix System service
     tools/
@@ -110,8 +112,43 @@ each worth knowing before touching this file:
   tree. cargo also never sets RUNPATH, so `RUSTFLAGS` passes `-Wl,-rpath` for
   libgcc_s, libdbus-1, libmnl and libnftnl.
 
-What is *not* included is the Electron GUI: upstream ships it as an npm
-workspace under `desktop/`, and this Guix has no npm importer.
+The Electron GUI is a separate package, `mullvad-vpn-gui`, built from the same
+source tarball and documented under "Desktop client" below.
+
+### Desktop client: `mullvad-vpn-gui`
+
+`mullvad-vpn-gui` builds upstream's Electron client from the same tarball and
+packages it with nonguix's Electron 41.  GUI and daemon must agree on their RPC
+protocol, so keep the two package versions in step.
+
+The npm build is the interesting part.  This Guix has no `guix import npm`, so
+`desktop/package-lock.json` cannot become node-build-system inputs.  Instead
+`(patches npm mullvad-desktop)` pins one origin per locked tarball (772 of them)
+and the build unpacks them into the `node_modules` layout the lock describes.
+The TypeScript sources, the two workspace shims (`nseventforwarder`,
+`windows-utils`) and the Vite renderer are then compiled by the project's own
+`tsc` and `vite build`; nothing comes from a prebuilt Mullvad bundle.
+
+The package installs a self-contained Electron tree and puts the application in
+`resources/app`, which is electron-builder's layout.  That matters because the
+client resolves its helper binaries through `process.resourcesPath`:
+`resources/mullvad-daemon` is a symlink to the source-built daemon, and
+`resources/relays.json`, `resources/ca.crt` and `resources/wireguard-go` are
+what the daemon needs.  Point the service at that directory:
+
+    (service mullvad-vpn-service-type
+             (mullvad-vpn-configuration
+              (resource-directory
+               "/gnu/store/...-mullvad-vpn-gui-2026.5/libexec/mullvad-vpn/resources")))
+
+`resource-directory` takes a string, so use the store path printed by
+`guix build mullvad-vpn-gui`.
+
+The client starts and shows "disconnected" even while the daemon is not
+running, which is useful for checking the build:
+
+    $ mullvad-vpn
+
 
 ### Outstanding work
 
@@ -121,7 +158,6 @@ somewhere to host the tarball, or a `local-file` alongside the channel. Most of
 that 1.2 GB is Windows-only crates (`windows`, `winapi`, ~500 MB) that Linux
 never compiles, so pruning those before tarballing is worth doing.
 
-The Electron GUI is a separate, larger gap — see above and below.
 
 ### Runtime dependency: wireguard-go
 
