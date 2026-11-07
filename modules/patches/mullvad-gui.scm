@@ -33,10 +33,14 @@
 ;;; The daemon
 ;;; ----------
 ;;; The GUI talks to the system daemon over its socket; it does not spawn it on
-;;; Linux.  Bringing a tunnel up still needs MULLVAD_RESOURCE_DIR to contain
-;;; relays.json, ca.crt and wireguard-go.  Those are installed under
-;;; libexec/mullvad-vpn/resources, which is also the directory to point the
-;;; Shepherd service in (patches services vpn) at.
+;;; Linux.  The daemon starts from the relay list in MULLVAD_RESOURCE_DIR
+;;; (relays.json), which is installed under libexec/mullvad-vpn/resources, the
+;;; directory to point the Shepherd service in (patches services vpn) at.
+;;; 2026.5 no longer runs wireguard-go: it uses kernel WireGuard, or its
+;;; in-process gotatun implementation, so there is no wireguard-go here.
+;;;
+;;; The resources directory also holds what the GUI itself runs from
+;;; process.resourcesPath: mullvad-problem-report, for "Report a problem".
 ;;;
 ;;; Keep this version in step with (patches vpn): GUI and daemon must agree on
 ;;; their RPC protocol.
@@ -51,10 +55,10 @@
   #:use-module (guix licenses)
   #:use-module (gnu packages base)         ; tar
   #:use-module (gnu packages compression)  ; gzip
+  #:use-module ((gnu packages glib) #:select (glib)) ; gsettings
   #:use-module (gnu packages node)
   #:use-module (nongnu packages electron)
   #:use-module (patches vpn)
-  #:use-module (patches wireguard)
   #:use-module (patches npm mullvad-desktop))
 
 ;;; Modules that main.js leaves external, plus their transitive dependencies.
@@ -140,7 +144,6 @@
                  (gzip (assoc-ref %build-inputs "gzip"))
                  (electron (assoc-ref %build-inputs "electron"))
                  (mullvad (assoc-ref %build-inputs "mullvad-vpn"))
-                 (wireguard (assoc-ref %build-inputs "wireguard-go"))
                  (appdir (string-append out "/libexec/mullvad-vpn"))
                  (resources (string-append appdir "/resources"))
                  (app (string-append resources "/app"))
@@ -184,6 +187,25 @@
                  (invoke (string-append node "/bin/node")
                          "../../node_modules/typescript/bin/tsc")))
              '("nseventforwarder" "windows-utils"))
+
+            ;; 3b. The GUI asks gsettings for the icon theme, to pick app icons
+            ;;     on the split-tunnelling page.  It runs it by bare name with
+            ;;     an environment of only XDG_CURRENT_DESKTOP, so there is no
+            ;;     PATH and the shell's default (/usr/bin:/bin...) has no
+            ;;     gsettings on Guix: "Error while retrieving theme", code 127,
+            ;;     on every start.  Name glib's gsettings in full, and pass on
+            ;;     what it needs from a GNOME session to read the real setting:
+            ;;     XDG_DATA_DIRS for the schemas, GIO_EXTRA_MODULES for dconf.
+            (substitute* (string-append
+                          pkg "/src/main/linux-desktop-entry.ts")
+              (("'gsettings get org\\.gnome\\.desktop\\.interface icon-theme'")
+               (string-append "'" #$glib:bin "/bin/gsettings"
+                              " get org.gnome.desktop.interface icon-theme'"))
+              (("\\{ env: \\{ XDG_CURRENT_DESKTOP: xdgCurrentDesktop \\} \\}")
+               (string-append
+                "{ env: { XDG_CURRENT_DESKTOP: xdgCurrentDesktop,"
+                " XDG_DATA_DIRS: process.env.XDG_DATA_DIRS ?? '',"
+                " GIO_EXTRA_MODULES: process.env.GIO_EXTRA_MODULES ?? '' } }")))
 
             ;; 4. Build main, preload and renderer into
             ;;    desktop/packages/mullvad-vpn/build.
@@ -251,13 +273,15 @@
                                  (string-append app "/node_modules/" name)))
              '("nseventforwarder" "windows-utils"))
 
-            ;; 8. Daemon and tunnel resources.  resolveBin() looks the daemon
-            ;;    up in process.resourcesPath, and the daemon wants
-            ;;    relays.json, ca.crt and wireguard-go in MULLVAD_RESOURCE_DIR.
-            (symlink (string-append mullvad "/bin/mullvad-daemon")
-                     (string-append resources "/mullvad-daemon"))
-            (symlink (string-append wireguard "/bin/wireguard-go")
-                     (string-append resources "/wireguard-go"))
+            ;; 8. Daemon and tunnel resources.  resolveBin() looks helper
+            ;;    binaries up in process.resourcesPath: mullvad-daemon, and
+            ;;    mullvad-problem-report for the "Report a problem" page.  The
+            ;;    daemon reads relays.json from MULLVAD_RESOURCE_DIR.
+            (for-each
+             (lambda (binary)
+               (symlink (string-append mullvad "/bin/" binary)
+                        (string-append resources "/" binary)))
+             '("mullvad-daemon" "mullvad-problem-report"))
             (copy-file "dist-assets/ca.crt"
                        (string-append resources "/ca.crt"))
             (copy-file "dist-assets/relays/relays.json"
@@ -271,6 +295,12 @@
             ;;    binary with the app directory, which is what makes
             ;;    process.resourcesPath ours.  The userns check mirrors
             ;;    dist-assets/linux/mullvad-gui-launcher.sh.
+            ;;
+            ;;    ELECTRON_RUN_AS_NODE is cleared because Electron-based tools
+            ;;    (editors, agent shells) export it to their children.
+            ;;    Inherited, it makes Electron start the app as plain Node,
+            ;;    which dies at once with "The requested module 'electron'
+            ;;    does not provide an export named 'screen'".
             (mkdir-p (dirname wrapper))
             (copy-file #$(file-append electron-41 "/bin/electron") wrapper)
             (make-file-writable wrapper)
@@ -279,6 +309,7 @@
                (string-append "export LD_LIBRARY_PATH=\"" appdir ":"))
               (("^exec -a \"\\$0\".*$")
                (string-append
+                "unset ELECTRON_RUN_AS_NODE\n"
                 "if [ -e /proc/sys/kernel/unprivileged_userns_clone ] && "
                 "grep -q 0 /proc/sys/kernel/unprivileged_userns_clone; then "
                 "set -- --no-sandbox \"$@\"; fi\n"
@@ -317,8 +348,7 @@
            gzip))
     (inputs
      (list electron-41
-           mullvad-vpn
-           wireguard-go))
+           mullvad-vpn))
     (supported-systems '("x86_64-linux"))
     (synopsis "Mullvad VPN desktop client")
     (description
@@ -335,8 +365,8 @@ application's @code{process.resourcesPath} refers to the package's own
 resources directory.
 
 Bringing a tunnel up still requires the daemon from @code{mullvad-vpn} to be
-running; the @code{libexec/mullvad-vpn/resources} directory holds
-@file{relays.json}, @file{ca.crt} and a @command{wireguard-go} symlink for it,
-and is meant to be used as the Shepherd service's resource directory.")
+running; the @code{libexec/mullvad-vpn/resources} directory holds the
+@file{relays.json} it starts from, and is meant to be used as the Shepherd
+service's resource directory.")
     (home-page "https://mullvad.net")
     (license gpl3)))

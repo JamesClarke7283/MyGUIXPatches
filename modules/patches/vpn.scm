@@ -20,14 +20,13 @@
 ;;; -----
 ;;; This package builds the Rust half of the client:
 ;;;
-;;;   mullvad-daemon    the privileged daemon that owns the tunnel
-;;;   mullvad           the command-line client ("mullvad status", ...)
-;;;   mullvad-exclude   the helper used for split tunnelling
+;;;   mullvad-daemon          the privileged daemon that owns the tunnel
+;;;   mullvad                 the command-line client ("mullvad status", ...)
+;;;   mullvad-exclude         the helper used for split tunnelling
+;;;   mullvad-problem-report  collects logs for the GUI's "Report a problem"
 ;;;
-;;; The Electron desktop GUI is not included.  Upstream ships it as an npm
-;;; workspace under desktop/, and this Guix has no npm importer
-;;; (guix import npm is not a valid importer here), so its package-lock.json
-;;; cannot be turned into package inputs.  See README.md.
+;;; The Electron desktop GUI is a separate package, mullvad-vpn-gui in
+;;; (patches mullvad-gui), built from the same tarball.
 ;;;
 ;;; Dependencies
 ;;; ------------
@@ -76,12 +75,13 @@
 ;;;
 ;;; Runtime
 ;;; -------
-;;; mullvad-daemon does not speak WireGuard itself: it spawns a wireguard-go
-;;; binary from its resource directory (MULLVAD_RESOURCE_DIR) and drives it
-;;; over a unix socket.  wireguard-go is packaged in (patches wireguard), and
-;;; mullvad-vpn-service-type in (patches services vpn) wires the two together
-;;; for Guix System -- which uses the Shepherd, not systemd, so upstream's
-;;; dist-assets/linux/mullvad-daemon.service does not apply.
+;;; mullvad-daemon creates a kernel WireGuard interface over netlink, or
+;;; falls back to gotatun, a userspace implementation compiled into it; 2026.5
+;;; no longer spawns wireguard-go.  It reads its starting relay list from its
+;;; resource directory (MULLVAD_RESOURCE_DIR).  mullvad-vpn-service-type in
+;;; (patches services vpn) runs it on Guix System -- which uses the Shepherd,
+;;; not systemd, so upstream's dist-assets/linux/mullvad-daemon.service does
+;;; not apply.
 
 (define-module (patches vpn)
   #:use-module (guix base32)
@@ -144,11 +144,14 @@
       ;; Guix ships rust 1.93.0, but 2026.5 declares rust-version = "1.95.0"
       ;; and cargo-build-system refuses to build with anything older.
       #:rust rust-1.99
+      ;; mullvad-problem-report backs the GUI's "Report a problem" page, which
+      ;; runs it from the GUI's resources directory.
       #:cargo-build-flags
       ''("--release"
          "--package" "mullvad-daemon"
          "--package" "mullvad-cli"
-         "--package" "mullvad-exclude")
+         "--package" "mullvad-exclude"
+         "--package" "mullvad-problem-report")
 
       ;; Upstream's test suite wants a live account and a real tunnel.
       #:tests? #f
@@ -180,11 +183,26 @@
               ;; mullvad-daemon's build.rs shells out to git log for the commit
               ;; date, and a tarball has no repository.  git is on PATH and the
               ;; source is writable, so make a single-commit repo for it.
+              ;;
+              ;; The repository also decides the version the binaries report.
+              ;; mullvad-version/build.rs appends "-dev-<HEAD hash>" unless
+              ;; HEAD is the commit tagged with the release version, so an
+              ;; untagged commit produced "2026.5-dev-0efef7".  The GUI
+              ;; compares the daemon's version with its own "2026.5" and, on a
+              ;; mismatch, shows "APP IS OUT OF SYNC" on every start; the
+              ;; daemon also treats a dev build as unsupported.  Hence the tag.
+              ;;
+              ;; The dates are pinned to the release date (CHANGELOG.md) so
+              ;; the commit hash and the embedded commit date are the same on
+              ;; every build.
               (unless (file-exists? ".git")
+                (setenv "GIT_AUTHOR_DATE" "2026-09-11 00:00:00 +0000")
+                (setenv "GIT_COMMITTER_DATE" "2026-09-11 00:00:00 +0000")
                 (invoke "git" "init" "-q")
                 (invoke "git" "-c" "user.email=guix@localhost"
                         "-c" "user.name=guix" "commit" "-q" "--allow-empty"
-                        "-m" "Guix build"))
+                        "-m" "Guix build")
+                (invoke "git" "tag" #$version))
               ;; make hard-codes /bin/sh for its recipes, which does not exist in
               ;; the sandbox; MAKESHELL overrides the default shell it uses.
               (setenv "MAKESHELL" #$(file-append bash "/bin/bash"))
@@ -457,7 +475,8 @@
                                           bin))
                           '("mullvad-daemon"
                             "mullvad"
-                            "mullvad-exclude"))))))))
+                            "mullvad-exclude"
+                            "mullvad-problem-report"))))))))
     ;; protoc: mullvad-management-interface/build.rs shells out to it and
     ;; panics with "Could not find `protoc'" without it.
     ;;
@@ -488,10 +507,9 @@ relays and query the daemon's status;
 @item @command{mullvad-exclude}, the helper used for split tunnelling.
 @end itemize
 
-The Electron desktop application is not included; see the README for the
-status of the GUI.  Bringing a tunnel up additionally requires a
-@command{wireguard-go} binary in the daemon's resource directory
-(@code{MULLVAD_RESOURCE_DIR}); the service in @code{(patches services vpn)}
-takes care of that.")
+It also provides @command{mullvad-problem-report}, which the desktop
+application runs to collect logs.  The Electron desktop application itself is
+the separate @code{mullvad-vpn-gui} package; the service in
+@code{(patches services vpn)} runs the daemon on Guix System.")
     (home-page "https://mullvad.net")
     (license gpl3)))

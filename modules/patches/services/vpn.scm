@@ -8,9 +8,10 @@
 ;;; to it over a local socket, so both come from the same package.
 ;;;
 ;;; Unlike the systemd unit that upstream ships, this service does not
-;;; point the daemon at /opt/Mullvad VPN/resources: it logs to its stdout
-;;; (captured by shepherd) and takes its paths from the MULLVAD_*
-;;; environment variables, which is what the daemon expects on Linux.
+;;; point the daemon at /opt/Mullvad VPN/resources: it takes its paths from
+;;; the MULLVAD_* environment variables, which is what the daemon expects on
+;;; Linux.  It logs to stdout (captured by shepherd) and, like upstream, to
+;;; /var/log/mullvad-vpn/daemon.log.
 ;;;
 ;;; ---------------------------------------------------------------------
 ;;; Usage, in /etc/config.scm
@@ -31,8 +32,13 @@
 ;;;           (append (list (service mullvad-vpn-service-type
 ;;;                                  (mullvad-vpn-configuration
 ;;;                                   (resource-directory
-;;;                                    "/var/lib/mullvad-vpn/resources"))))
+;;;                                    (file-append
+;;;                                     mullvad-vpn-gui
+;;;                                     "/libexec/mullvad-vpn/resources")))))
 ;;;                   %desktop-services)))
+;;;
+;;;      (file-append needs (guix gexp), and mullvad-vpn-gui comes from
+;;;      (patches mullvad-gui).)
 ;;;
 ;;;   4. Reconfigure:
 ;;;
@@ -44,12 +50,16 @@
 ;;;        sudo herd log mullvad-daemon      # or: journalctl-equivalent
 ;;;        mullvad status                   # once logged in
 ;;;
-;;; Note on `resource-directory': the daemon spawns `wireguard-go' from
-;;; there to build the tunnel.  Guix has no wireguard-go package yet, so
-;;; the default is #f (daemon's own default, which looks next to the
-;;; executable and will not contain it).  Until that is packaged, drop a
-;;; wireguard-go binary in a directory and point the field at it.  The
-;;; daemon still runs without it; only bringing a tunnel up will fail.
+;;; Note on `resource-directory': the daemon reads relays.json from there,
+;;; the relay list it uses until it has downloaded a current one.  The
+;;; default is #f (the daemon's own default, the directory of its
+;;; executable, which holds no relays.json).  2026.5 does not use
+;;; wireguard-go: it drives kernel WireGuard, or its in-process gotatun
+;;; implementation, so the directory needs no tunnel binaries.
+;;;
+;;; The service also installs mullvad-exclude setuid root, as upstream's
+;;; packages do, so the GUI's split-tunnelling page can launch programs
+;;; outside the tunnel.
 ;;;
 ;;; Note on lockdown: upstream's systemd unit sends SIGUSR1 on restart so
 ;;; the daemon enables its lockdown (kill-switch) mode before shutting
@@ -60,6 +70,10 @@
 (define-module (patches services vpn)
   #:use-module (gnu services)
   #:use-module (gnu services shepherd)
+  #:use-module (gnu system privilege)
+  #:use-module ((gnu packages base) #:select (coreutils))
+  #:use-module ((gnu packages dns) #:select (openresolv))
+  #:use-module ((gnu packages linux) #:select (iproute))
   #:use-module (guix gexp)
   #:use-module (guix records)
   #:use-module (patches vpn)
@@ -69,6 +83,7 @@
             mullvad-vpn-configuration-resource-directory
             mullvad-vpn-configuration-settings-directory
             mullvad-vpn-configuration-verbosity
+            mullvad-vpn-configuration-log-to-file?
             mullvad-vpn-service-type))
 
 ;;;
@@ -80,9 +95,10 @@
   mullvad-vpn-configuration?
   (package            mullvad-vpn-configuration-package
                       (default mullvad-vpn))
-  ;; Directory holding wireguard-go, relays.json and ca.crt.  #f means
-  ;; "leave it to the daemon", which resolves this relative to its own
-  ;; executable.  May be a string or a file-like object, e.g.
+  ;; Directory holding relays.json, the relay list the daemon starts from
+  ;; before it has fetched a fresh one.  #f means "leave it to the daemon",
+  ;; which resolves this relative to its own executable.  May be a string
+  ;; or a file-like object, e.g.
   ;; (file-append mullvad-vpn-gui "/libexec/mullvad-vpn/resources").
   (resource-directory mullvad-vpn-configuration-resource-directory
                       (default #f))
@@ -92,7 +108,12 @@
                       (default "/var/lib/mullvad-vpn"))
   ;; Number of -v flags.  0 is "error only", 2 matches upstream's unit.
   (verbosity          mullvad-vpn-configuration-verbosity
-                      (default 2)))
+                      (default 2))
+  ;; Also log to /var/log/mullvad-vpn/daemon.log, as upstream's unit does.
+  ;; The GUI's "Report a problem" page collects that file; with #f the
+  ;; daemon logs only to stdout, i.e. to the Shepherd.
+  (log-to-file?       mullvad-vpn-configuration-log-to-file?
+                      (default #t)))
 
 ;;;
 ;;; Shepherd service.
@@ -105,6 +126,7 @@ CONFIG."
          (resource-directory (mullvad-vpn-configuration-resource-directory config))
          (settings-directory (mullvad-vpn-configuration-settings-directory config))
          (verbosity          (mullvad-vpn-configuration-verbosity config))
+         (log-to-file?       (mullvad-vpn-configuration-log-to-file? config))
 
          ;; Build the command line on the host side so the gexp below stays
          ;; readable.  -v is a counting flag, hence "-v", "-vv", ...
@@ -113,19 +135,38 @@ CONFIG."
                   (if (> verbosity 0)
                       (list (string-append "-" (make-string verbosity #\v)))
                       '())
-                  ;; Let shepherd own the logs: with --disable-log-to-file
-                  ;; everything goes to stdout, which avoids needing a
-                  ;; writable /var/log/mullvad-vpn and keeps the service
-                  ;; self-contained.
-                  (list "--disable-stdout-timestamps"
-                        "--disable-log-to-file")))
+                  ;; stdout always goes to the Shepherd's log.  The daemon
+                  ;; creates /var/log/mullvad-vpn itself when it logs to a
+                  ;; file as well.
+                  (list "--disable-stdout-timestamps")
+                  (if log-to-file?
+                      '()
+                      (list "--disable-log-to-file"))))
 
          ;; The daemon reads its paths from the environment, not from
          ;; command-line flags.  RESOURCE-DIRECTORY may be a string or a
          ;; file-like object, so build the environment as a gexp and let
          ;; #$ lower it; #$@ splices the optional resource entry.
+         ;;
+         ;; #:environment-variables *replaces* the environment, so without
+         ;; an explicit PATH the daemon has none, and it runs programs:
+         ;;
+         ;;   ip          adds the IPv6 address to a userspace (gotatun)
+         ;;               tunnel, used for DAITA, some obfuscation modes and
+         ;;               whenever kernel WireGuard is unavailable; without it
+         ;;               connecting fails outright;
+         ;;   resolvconf  is how DNS is managed on Guix System, where
+         ;;               NetworkManager hands resolv.conf to openresolv.
+         ;;               The daemon finds it through PATH; NetworkManager
+         ;;               itself is newer than the daemon will drive for DNS;
+         ;;   uname       reports the kernel version for logs and problem
+         ;;               reports.
          (environment
           #~(list (string-append "MULLVAD_SETTINGS_DIR=" #$settings-directory)
+                  (string-append "PATH="
+                                 #$(file-append iproute "/sbin") ":"
+                                 #$(file-append openresolv "/sbin") ":"
+                                 #$(file-append coreutils "/bin"))
                   #$@(if resource-directory
                          (list #~(string-append "MULLVAD_RESOURCE_DIR="
                                                 #$resource-directory))
@@ -158,6 +199,22 @@ CONFIG."
         (chmod settings #o700))))
 
 ;;;
+;;; Split tunnelling helper.
+;;;
+
+;;; mullvad-exclude launches a program outside the tunnel by moving itself
+;;; into the daemon's net_cls cgroup and then dropping back to the caller's
+;;; user and group before exec'ing the program.  Joining that cgroup needs
+;;; root, so upstream installs it setuid root (after-install.sh); the GUI's
+;;; split-tunnelling page runs it by name, and /run/setuid-programs comes
+;;; first in PATH on Guix System.
+(define (mullvad-vpn-privileged-programs config)
+  (list (privileged-program
+         (program (file-append (mullvad-vpn-configuration-package config)
+                               "/bin/mullvad-exclude"))
+         (setuid? #t))))
+
+;;;
 ;;; Service type.
 ;;;
 
@@ -172,5 +229,7 @@ The @command{mullvad} command-line client talks to it over a local socket.")
     (list (service-extension shepherd-root-service-type
                              mullvad-vpn-shepherd-service)
           (service-extension activation-service-type
-                             mullvad-vpn-activation)))
+                             mullvad-vpn-activation)
+          (service-extension privileged-program-service-type
+                             mullvad-vpn-privileged-programs)))
    (default-value (mullvad-vpn-configuration))))
