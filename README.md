@@ -22,6 +22,8 @@ software that is not in Guix or nonguix, so it can be built locally from source.
       godot.scm                (patches godot)          Godot 4.7 stable editor
       gimp.scm                 (patches gimp)           GIMP 3.2.8, MCP server and plug-in
       appimagelauncher.scm     (patches appimagelauncher) AppImageLauncher 3.0.0-beta-3
+      chatgpt-desktop.scm      (patches chatgpt-desktop) ChatGPT desktop app
+      claude-desktop.scm       (patches claude-desktop)  Claude desktop app
       tailwindcss.scm          (patches tailwindcss)    Tailwind CSS 4 CLI, standalone binary
       trunk.scm                (patches trunk)          Trunk Rust WASM bundler
       opencode.scm             (patches opencode)       opencode coding agent, built from source
@@ -1043,6 +1045,55 @@ Verify:
 
     $ antigravity
     # log: "Starting app (v2.28.2) ...", "Host bridge server listening on ..."
+
+## ChatGPT desktop
+
+`(patches chatgpt-desktop)` provides **ChatGPT 26.1103.32239**, OpenAI's
+desktop client, from the official Linux preview `.deb`. It bundles its own
+Electron runtime under `share/chatgpt`, together with the Codex integration,
+the app's native modules and the Chrome extension host. The launcher and the
+helper executables are patched to use the store's loader.
+
+    guix build -L modules chatgpt-desktop
+    guix install -L modules chatgpt-desktop
+
+The desktop entry is installed as `chatgpt.desktop` with the app's 1024x1024
+icon. Launch it from the applications menu or run `chatgpt`.
+
+Native Wayland is experimental upstream; the package sets
+`ELECTRON_OZONE_PLATFORM_HINT=auto`, so the app picks a backend for the
+session. To try native Wayland explicitly:
+
+    chatgpt --ozone-platform=wayland
+
+The package is a proprietary binary; no source build is attempted. Upstream's
+Linux support is a preview, so some features (notably Computer Use) are not
+available on Linux yet.
+
+## Claude desktop
+
+`(patches claude-desktop)` provides **Claude Desktop 4.23118.0**, Anthropic's
+desktop client, from the official Linux beta `.deb`. It bundles its own
+Electron runtime under `share/claude-desktop`; the launcher, crash handler,
+Chrome native host, the disclaimer binary and the bundled `virtiofsd` helper
+are patched to the store's loader. Its hicolor icons, MIME definitions and
+desktop entry are installed too.
+
+    guix build -L modules claude-desktop
+    guix install -L modules claude-desktop
+
+Launch **Claude** from the applications menu or run `claude-desktop`.
+
+Chat, Claude Code and projects work without extra setup. Cowork additionally
+needs hardware virtualisation, `/dev/kvm`, QEMU and OVMF firmware. `virtiofsd`
+is bundled, but install `qemu` and `ovmf-x86-64` in the same profile and make
+sure your user can open `/dev/kvm` (on Guix System, add the user to the `kvm`
+group). Sign-in is stored through the desktop keyring, so a running and
+unlocked GNOME Keyring is needed for it to persist between launches.
+
+The package is a proprietary binary; no source build is attempted. Upstream's
+Linux support is a beta, and Computer Use and dictation are not available on
+Linux yet.
 
 ## Regenerating the mullvad crate list
 
