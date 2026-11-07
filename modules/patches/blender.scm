@@ -352,17 +352,31 @@
     (build-system trivial-build-system)
     (arguments
      (list
-      #:modules '((guix build union) (guix build utils) (ice-9 ftw))
+      #:modules '((guix build union) (guix build utils))
       #:builder
       #~(begin
-          (use-modules (guix build union) (guix build utils) (ice-9 ftw))
+          (use-modules (guix build union) (guix build utils))
+
+          ;; Read the top-level entries of the source package with Guile's
+          ;; POSIX procedures.  Importing (ice-9 ftw) for 'scandir' would make
+          ;; the gexp take the module from the host and warn about it.
+          (define (directory-entries directory)
+            (let ((port (opendir directory)))
+              (let loop ((entries '()))
+                (let ((entry (readdir port)))
+                  (if (eof-object? entry)
+                      (begin
+                        (closedir port)
+                        (reverse entries))
+                      (loop (cons entry entries)))))))
+
           (mkdir-p #$output)
           (for-each
            (lambda (name)
              (unless (member name '("." ".." "bin"))
                (symlink (string-append #$blender-core "/" name)
                         (string-append #$output "/" name))))
-           (scandir #$blender-core))
+           (directory-entries #$blender-core))
           (union-build (string-append #$output "/bin")
                        (list (string-append #$blender-core "/bin"))
                        #:create-all-directories? #t)
