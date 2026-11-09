@@ -15,11 +15,14 @@ software that is not in Guix or nonguix, so it can be built locally from source.
       bun-bootstrap.scm        (patches bun-bootstrap)  prebuilt Bun seed for the above
       coding-agents.scm        (patches coding-agents)  oh-my-pi ("omp") and its addons
       ai-clis.scm              (patches ai-clis)        t3-code, codex, claude-code
+      vscodium-kilo-code.scm   (patches vscodium-kilo-code)  Kilo Code for VSCodium
       t3-desktop.scm           (patches t3-desktop)     t3-code-desktop: native Electron app
       antigravity.scm          (patches antigravity)    Google Antigravity (Electron app)
       mullvad-gui.scm          (patches mullvad-gui)    Mullvad VPN Electron client
       blender.scm              (patches blender)        Blender 5.2 LTS, MCP server and extension
       godot.scm                (patches godot)          Godot 4.7 stable editor
+      godot-loader.scm         (patches godot-loader)   runs games exported with Godot's official templates
+      aux-files/godot-loader/  C sources of godot-loader
       gimp.scm                 (patches gimp)           GIMP 3.2.8, MCP server and plug-in
       appimagelauncher.scm     (patches appimagelauncher) AppImageLauncher 3.0.0-beta-3
       chatgpt-desktop.scm      (patches chatgpt-desktop) ChatGPT desktop app
@@ -93,6 +96,82 @@ The build enables and runs Godot's headless unit tests: 1,386 cases and
 GDScript, SVG and glTF imports, multilingual text shaping, 3D physics, and
 resource saving. Close a running older Godot and launch `godot` again after
 updating.
+
+## Godot export loader
+
+`(patches godot-loader)` provides **godot-loader**, which runs Linux games
+exported from Godot with the official export templates:
+
+    godot-loader ~/Downloads/Voxey.x86_64
+    godot-loader Game.x86_64 --fullscreen -- --server   # arguments go to the game
+
+Build and install it from this checkout:
+
+    guix build -L modules godot-loader
+    guix install -L modules godot-loader
+
+The official templates are linked for FHS distributions. Their interpreter is
+`/lib64/ld-linux-x86-64.so.2`, and they `dlopen()` X11, Wayland, OpenGL,
+Vulkan, ALSA, PulseAudio, D-Bus, fontconfig, udev and speech-dispatcher by
+soname. `godot-loader` parses the file's ELF headers, rejects anything that is
+not an x86-64 executable (with a hint for Godot's `.sh` console wrapper), and
+starts the export unmodified through the store's glibc loader. The loader's
+library path holds those libraries, the same store items the `godot` package
+uses, and GCC's `libstdc++` for GDExtension libraries. It takes the place of
+`LD_LIBRARY_PATH`, so a stray value in the environment does not reach the game.
+
+### Why the export is not patched
+
+A release template finds itself with `readlink("/proc/self/exe")`
+(`OS_Unix::get_executable_path`). It loads the project from the PCK embedded
+in that file or from `Game.pck` beside it, reads `override.cfg` and GDExtension
+libraries from its directory, and makes that directory its working directory
+(`main/main.cpp`). Started through `ld.so`, the link names the loader, and
+release templates reject `--main-pack`:
+
+    ERROR: `--main-pack` was specified on the command line, but this Godot binary was compiled without support for path overrides. Aborting.
+
+Setting the interpreter with patchelf does not help. patchelf 0.18.0 produces
+a binary that segfaults before `main`, even for `--version`: its new
+read-write segment is overlapped by a read-only one that covers `.dynamic`.
+A copy patched with 0.16.1 runs, but it has to live somewhere writable, and
+Godot then treats that directory, not the game's, as its own.
+
+`godot-loader` instead preloads `lib/godot-loader/preload.so`, with ld.so's
+`--preload`, so processes the game starts do not inherit it. The library:
+
+- answers `readlink()` of the game's `/proc/…/exe` with the game's path;
+- starts the game through `godot-loader` when the game starts itself:
+  `execvp()` for `OS.create_process()`, `OS.create_instance()` and restarts,
+  and `popen()` for `OS.execute()`; and
+- names the process after the game instead of `ld-linux-x86-64`.
+
+### Cursors
+
+Godot's X11 and Wayland display servers fall back to a cursor theme named
+`default` when none is configured, which is the case here for XWayland
+clients under GNOME (`XcursorGetTheme could not get cursor theme`). FHS
+distributions provide `/usr/share/icons/default`; the Guix profiles here have
+no such theme, so pointer shapes never change. Unless `XCURSOR_THEME` is set,
+`godot-loader` appends a `default` theme, Adwaita, to `XCURSOR_PATH`. A theme
+you configure still takes precedence.
+
+### Verified
+
+On this laptop (Intel UHD 620, GNOME on Wayland), with the official 4.7.2
+templates:
+
+- `Voxey.x86_64` (embedded PCK, GL Compatibility) runs under XWayland and with
+  `--display-driver wayland` on OpenGL 4.6 (Mesa 26.0.2), and with
+  `--rendering-method forward_plus` on Vulkan 1.4.335. Audio goes through
+  PulseAudio. Its working directory is the export's directory, `ps` shows
+  `Voxey.x86_64`, and 16 of Godot's 17 cursors load (Adwaita has no
+  `crossed_circle`).
+- A test export, built with an embedded and with a separate PCK, reports its
+  own path from `OS.get_executable_path()`, receives the arguments after `--`,
+  and relaunches itself with both `OS.execute()` and `OS.create_process()`.
+
+GDExtension libraries and C#/.NET exports have not been tested.
 
 ## Blender
 
@@ -883,6 +962,49 @@ Verify by launching it from the menu, or check the app's log for
     INFO: main window created
 
 The desktop entry is `t3code.desktop` (`Name=T3 Code`). The CLI's browser entry is renamed `T3 Code (Web)` so the two do not collide in the menu.
+
+## Kilo Code for VSCodium
+
+`(patches vscodium-kilo-code)` provides **Kilo Code 7.8.27**, the latest stable,
+non-pre-release upstream version, on `x86_64-linux`.  Two packages are
+available:
+
+- `vscodium-kilo-code` installs the extension and its VSCodium manifest under
+  `share/vscodium/extensions`.
+- `vscodium-with-kilo-code` rebuilds nonguix's VSCodium with Kilo Code included
+  as a bundled extension, so it is discovered automatically.  Extensions in
+  `~/.vscode-oss/extensions` continue to work.
+
+Try the integrated editor without changing your profile:
+
+    guix shell -L modules vscodium-with-kilo-code -- codium
+
+To install it instead of the regular VSCodium package:
+
+    guix remove vscodium             # if it is currently installed
+    guix install -L modules vscodium-with-kilo-code
+
+Both editor packages provide `bin/codium`, so do not install both into the same
+profile.  Removing the regular package does not remove your editor settings or
+user-installed extensions.  Kilo Code can be disabled in the Extensions view;
+like VSCodium's other bundled extensions, it is not uninstalled separately.
+
+To use only the standalone extension directory for an isolated launch:
+
+    extension=$(guix build -L modules vscodium-kilo-code)
+    codium --extensions-dir "$extension/share/vscodium/extensions"
+
+`--extensions-dir` replaces, rather than extends, the usual user extension
+directory.  The integrated package is therefore the normal installation choice.
+An AI provider account or API key is required for model requests.
+
+The package uses upstream's stable Linux x64 VSIX, including its bundled
+JavaScript and prebuilt native helpers.  `bin/kilo` is a Bun executable linked
+against the FHS loader, so its interpreter is changed to Guix's loader with
+`patchelf`; the static FFmpeg and sandbox helpers are unchanged.  The build
+checks `kilo --version`.  Extension discovery and activation were also tested
+with VSCodium 1.107.18605, and `kilo serve` successfully started its local HTTP
+server.
 
 ## opencode
 
