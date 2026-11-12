@@ -26,6 +26,7 @@ software that is not in Guix or nonguix, so it can be built locally from source.
       gimp.scm                 (patches gimp)           GIMP 3.2.8, MCP server and plug-in
       freecad-mcp.scm          (patches freecad-mcp)    Robust MCP server and FreeCAD workbench
       security.scm             (patches security)       Security tools and official MCP integrations
+      prismlauncher.scm        (patches prismlauncher)  Source-built Prism Minecraft launcher
       appimagelauncher.scm     (patches appimagelauncher) AppImageLauncher 3.0.0-beta-3
       chatgpt-desktop.scm      (patches chatgpt-desktop) ChatGPT desktop app
       claude-desktop.scm       (patches claude-desktop)  Claude desktop app
@@ -548,6 +549,23 @@ Restrict the file to the current user and check the connection from Metasploit:
 At the Metasploit prompt, run `db_status`.  Do not also run `msfdb init` or
 `msfdb start` for this configuration: the Guix Shepherd service owns the
 PostgreSQL cluster and its lifecycle.
+
+## Prism Launcher
+
+`(patches prismlauncher)` provides **Prism Launcher 11.1.1**, built from the
+official source release with Qt 6 and OpenJDK 17.  It includes the Java launcher
+components, desktop integration, manpage, and runtime paths for Qt plugins,
+GLFW, OpenAL, controllers, Vulkan, text-to-speech, and hardware-information
+utilities.  Minecraft and its proprietary assets are not included.
+
+Build and install it into the default profile:
+
+    guix build -L modules prismlauncher
+    guix install -L modules prismlauncher
+
+Start it with `prismlauncher` or the desktop entry.  OpenJDK 17 is a build
+dependency; the launcher can download or select the Java version required by
+each Minecraft instance.
 
 ## AppImageLauncher
 
