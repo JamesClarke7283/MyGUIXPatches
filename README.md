@@ -24,6 +24,8 @@ software that is not in Guix or nonguix, so it can be built locally from source.
       godot-loader.scm         (patches godot-loader)   runs games exported with Godot's official templates
       aux-files/godot-loader/  C sources of godot-loader
       gimp.scm                 (patches gimp)           GIMP 3.2.8, MCP server and plug-in
+      freecad-mcp.scm          (patches freecad-mcp)    Robust MCP server and FreeCAD workbench
+      security.scm             (patches security)       Security tools and official MCP integrations
       appimagelauncher.scm     (patches appimagelauncher) AppImageLauncher 3.0.0-beta-3
       chatgpt-desktop.scm      (patches chatgpt-desktop) ChatGPT desktop app
       claude-desktop.scm       (patches claude-desktop)  Claude desktop app
@@ -324,6 +326,228 @@ all 79 tools. The plug-in's build starts the installed plug-in in GIMP 3.2.8
 on a virtual X server and runs upstream's `run_tests.py`; all 59 checks pass.
 A stdio round trip through the installed `gimp-mcp-server` also connects to
 GIMP 3.2.8 and returns an image snapshot.
+
+## FreeCAD Robust MCP
+
+`(patches freecad-mcp)` provides Sean Kane's **FreeCAD Robust MCP Server**, with
+its two independently versioned components:
+
+- `freecad-robust-mcp` **0.7.0** provides the `freecad-mcp` command and 170 MCP
+  tools for documents, primitives, Part Design, Draft, spreadsheets, CAM,
+  macros, screenshots, validation, and STEP/STL/OBJ/3MF export.
+- `freecad-robust-mcp-workbench` **0.7.2** provides the matching Robust MCP
+  Bridge workbench for FreeCAD 1.0.2 and newer, including authenticated
+  pairing, XML-RPC and JSON-RPC, GUI and headless operation.
+
+Build and install both into the default profile:
+
+    guix build -L modules freecad-robust-mcp freecad-robust-mcp-workbench
+    guix install -L modules freecad-robust-mcp freecad-robust-mcp-workbench
+
+Create the per-user bridge credential once:
+
+    freecad-mcp --pair-bridge
+
+Start FreeCAD with the workbench on its module path:
+
+    FreeCAD-robust-mcp
+
+For headless use, the corresponding command is `FreeCADCmd-robust-mcp`.  To use
+the normal launcher instead, run:
+
+    FreeCAD --module-path "$HOME/.guix-profile/share/freecad/Mod"
+
+Select **Robust MCP Bridge** in the workbench selector and click **Start MCP
+Bridge**.  To make the unmodified `FreeCAD` launcher find it automatically on
+FreeCAD 1.1, link the profile's workbench into the user module directory:
+
+    mkdir -p "$HOME/.local/share/FreeCAD/v1-1/Mod"
+    ln -s "$HOME/.guix-profile/share/freecad/Mod/RobustMCPBridge" \
+      "$HOME/.local/share/FreeCAD/v1-1/Mod/RobustMCPBridge"
+
+Configure the MCP client to launch `freecad-mcp` over stdio, for example:
+
+```json
+{
+  "mcpServers": {
+    "freecad": {
+      "command": "freecad-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+If the client does not inherit the profile's `PATH`, use
+`$HOME/.guix-profile/bin/freecad-mcp` as the command.  The default connection
+is local XML-RPC on port 9875.  Python executed by the agent runs with the
+FreeCAD user's permissions, so connect only clients you trust.
+
+The server's build runs 991 unit tests; five Windows-specific tests are
+skipped.  An authenticated headless round trip against FreeCAD 1.1.4 also
+listed all 170 tools, created a document and a 10 x 20 x 30 mm box, and verified
+its 6000 mm3 volume.  Normal FreeCAD startup was checked to discover the
+packaged workbench through the user module link.
+
+## Security assessment tools and MCP
+
+`(patches security)` provides **Metasploit Framework 6.5.10**, **Nmap 7.993**,
+**Gobuster 3.8.2**, **SecLists 2026.2**, and **ZAP 2.17.0** with the ZAP Dev
+Team's official **MCP Integration 0.4.0** add-on.  Install all six packages into
+the default profile:
+
+    guix install -L modules metasploit-framework nmap gobuster seclists \
+      zaproxy zaproxy-mcp
+
+The SecLists checkout is available under
+`$HOME/.guix-profile/share/seclists`.  For example, against a system you are
+authorized to test:
+
+    gobuster dir -u http://target.test \
+      -w "$HOME/.guix-profile/share/seclists/Discovery/Web-Content/common.txt"
+
+### Metasploit native MCP
+
+The `metasploit-framework` package uses Rapid7's Omnibus distribution and
+includes the native `msfmcpd` server; no third-party Metasploit MCP bridge is
+needed.  Configure an MCP client to launch it over stdio, for example:
+
+```json
+{
+  "mcpServers": {
+    "metasploit": {
+      "command": "/home/james/.guix-profile/bin/msfmcpd",
+      "args": []
+    }
+  }
+}
+```
+
+On startup, `msfmcpd` checks for MessagePack RPC on localhost port 55553.  If no
+RPC server is running, it starts `msfrpcd` automatically and generates random
+credentials for that local session.  To connect to an existing RPC server,
+provide `MSF_API_USER` and `MSF_API_PASSWORD`, or use `--user` and `--password`;
+do not commit those credentials to a client configuration file.
+
+**This package enables dangerous MCP actions by default.**  This includes module
+execution/checks and session stop/write operations.  Use it only with trusted
+clients and on systems you own or are explicitly authorized to test.  Select the
+read-only gate without editing the store by setting
+`MSF_MCP_DANGEROUS_ACTIONS` to `false`, `0`, `no`, or `off`, either in the
+launching environment or in the client configuration:
+
+```json
+{
+  "mcpServers": {
+    "metasploit": {
+      "command": "/home/james/.guix-profile/bin/msfmcpd",
+      "args": [],
+      "env": {
+        "MSF_MCP_DANGEROUS_ACTIONS": "false"
+      }
+    }
+  }
+}
+```
+
+The native server also supports HTTP transport, with bearer-token
+authentication.  See `msfmcpd --help` and the packaged
+`opt/metasploit-framework/embedded/framework/config/mcp_config.yaml.example`.
+
+### ZAP official MCP Integration
+
+The official `mcp-alpha-0.4.0.zap` add-on is preinstalled in ZAP's plugin
+directory.  Start `zaproxy` (or the `zap-mcp` alias), then open **Options → MCP
+Integration**:
+
+1. Select **Enable MCP Server**.  The listener is disabled by default; the
+   launchers do not change that upstream security default.
+2. Leave the port at **8282** unless it conflicts with another local service.
+3. Click **Generate** to create a security key and enable **Require security key
+   in Authorization header**.  Copy the key into the MCP client's secret store.
+4. **Secure Only (reject HTTP connections)** is enabled by default.  Keep it
+   enabled when using HTTPS.  For a strictly loopback-only HTTP client, disable
+   it explicitly, retain the security key, and keep external access blocked by
+   the firewall.
+
+A typical local HTTP client entry is shown below.  Replace the placeholder with
+the generated key; ZAP expects the key itself, without an automatically added
+`Bearer` prefix:
+
+```json
+{
+  "mcpServers": {
+    "zap": {
+      "url": "http://localhost:8282",
+      "headers": {
+        "Authorization": "REPLACE_WITH_ZAP_SECURITY_KEY"
+      }
+    }
+  }
+}
+```
+
+Never expose ZAP's MCP port to an untrusted network.  It can control scans and
+read intercepted traffic and alerts, its CORS policy allows any origin, and a
+key sent over plain HTTP is not protected from network interception.
+
+### PostgreSQL for Metasploit on Guix System
+
+Use Guix's native PostgreSQL service rather than the Omnibus `msfdb` database
+manager.  In `/etc/config.scm`, import the database service and package modules:
+
+```scheme
+(use-package-modules databases)
+(use-service-modules databases)
+```
+
+Add this entry to the list in the operating-system `services` field, keeping the
+existing services and `%desktop-services` intact:
+
+```scheme
+(service postgresql-service-type
+         (postgresql-configuration
+          (postgresql postgresql)
+          (port 5432)
+          (data-directory "/var/lib/postgresql/data")))
+```
+
+Apply the system configuration from this checkout, then confirm that Shepherd
+started the service:
+
+    sudo guix system reconfigure -L "$PWD/modules" /etc/config.scm
+    sudo herd status postgresql
+
+Create a dedicated Metasploit role and database.  The role password is prompted
+for rather than placed in shell history:
+
+    PG_BIN="$(guix build postgresql)/bin"
+    sudo -u postgres "$PG_BIN/createuser" --pwprompt msf
+    sudo -u postgres "$PG_BIN/createdb" --owner=msf msf
+
+Create `$HOME/.msf4/database.yml` with the following contents, replacing
+`CHANGE_ME` with the role password:
+
+```yaml
+production:
+  adapter: postgresql
+  database: msf
+  username: msf
+  password: "CHANGE_ME"
+  host: 127.0.0.1
+  port: 5432
+  pool: 75
+  timeout: 5
+```
+
+Restrict the file to the current user and check the connection from Metasploit:
+
+    chmod 600 "$HOME/.msf4/database.yml"
+    msfconsole -q
+
+At the Metasploit prompt, run `db_status`.  Do not also run `msfdb init` or
+`msfdb start` for this configuration: the Guix Shepherd service owns the
+PostgreSQL cluster and its lifecycle.
 
 ## AppImageLauncher
 
@@ -894,7 +1118,7 @@ build:
 | Package | Upstream artifact | Why no source build |
 | --- | --- | --- |
 | `t3-code` | `t3-0.1.6-linux-x64.tar.gz` | Node single-executable application |
-| `codex` | `@openai/codex@0.166.0-linux-x64` | Rust, but vendoring to 1308 crates / 1.8 GB |
+| `codex` | `@openai/codex@0.167.0-linux-x64` | Rust, but vendoring to 1308 crates / 1.8 GB |
 | `claude-code` | `@anthropic-ai/claude-code-linux-x64` | closed source |
 
 `codex` is statically linked and runs as-is. The other two carry a PT_INTERP of

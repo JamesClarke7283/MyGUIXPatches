@@ -16,7 +16,7 @@
 ;;;
 ;;;   * `@openai/codex' is a wrapper that loads `@openai/codex@<v>-linux-x64',
 ;;;     one 319 MB statically linked Rust binary.  Codex IS open source and was
-;;;     attempted from source: rust-v0.166.0 vendors to 1308 crates (1.8 GB) once
+;;;     attempted from source: rust-v0.167.0 vendors to 1308 crates (1.8 GB) once
 ;;;     the v8-poc member is dropped, since that member pulls all of Chromium's
 ;;;     V8.  It builds as far as `secret-service', which then fails to find the
 ;;;     `zvariant' version it expects, because trimming the workspace leaves the
@@ -43,10 +43,10 @@
 ;;; Verified by hand against these exact artifacts before writing this file:
 ;;;
 ;;;   $ ld-linux-x86-64.so.2 --library-path <glibc>/lib:<gcc>/lib claude --version
-;;;   2.1.316 (Claude Code)
+;;;   2.1.322 (Claude Code)
 ;;;
 ;;;   $ codex --version
-;;;   codex-cli 0.166.0
+;;;   codex-cli 0.167.0
 ;;;
 ;;; `t3' is the awkward one: a Node single-executable application.  A
 ;;; single-executable derives `import.meta.dirname' -- and with it where it looks
@@ -268,7 +268,7 @@ path that Guix System does not have.")
 (define-public codex
   (package
     (name "codex")
-    (version "0.166.0")
+    (version "0.167.0")
     (source
      (origin
        (method url-fetch)
@@ -276,7 +276,7 @@ path that Guix System does not have.")
                            version "-linux-x64.tgz"))
        (file-name (string-append name "-" version ".tgz"))
        (sha256
-        (base32 "14zx0702nxh8wc5bqxdind4y7w8ym3w9325yqkpwxqnhsck0mh6b"))))
+        (base32 "0d24dl1gbqd1lfyhdsbfqis1kbqzf1gh43fj74skqldv3a3smj9d"))))
     (build-system trivial-build-system)
     (arguments
      (list #:modules '((guix build utils))
@@ -331,7 +331,7 @@ vendor tree hosted somewhere first.")
 (define-public claude-code
   (package
     (name "claude-code")
-    (version "2.1.316")
+    (version "2.1.322")
     (source
      (origin
        (method url-fetch)
@@ -340,7 +340,7 @@ vendor tree hosted somewhere first.")
                            version ".tgz"))
        (file-name (string-append name "-" version ".tgz"))
        (sha256
-        (base32 "000h911gl6g7x94i3qllc3n28wsd2khza02s30d1cxdldqcinpkl"))))
+        (base32 "06bjnla548m1483x348przw48cli5nylblspc2v0mhl057c7bh9w"))))
     (build-system trivial-build-system)
     (arguments
      (list #:modules '((guix build utils))
