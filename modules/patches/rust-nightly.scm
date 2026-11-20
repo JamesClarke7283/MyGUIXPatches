@@ -213,7 +213,7 @@ sources.")
 ;;; Stable Rust, for packages that need something newer than Guix's 1.93.0.
 ;;;
 
-(define %rust-stable-version "1.99.1")
+(define %rust-stable-version "1.100.0")
 
 ;;; Return a package carrying COMPONENT of the stable release, so it can be
 ;;; passed as an ordinary input (Guix rejects raw origins in a package's inputs).
@@ -225,13 +225,13 @@ sources.")
                                   "-x86_64-unknown-linux-gnu.tar.xz")
                    (string-append component "-" %rust-stable-version ".tar.xz")))
          (hash (cond ((string=? component "rustc")
-                      "07q9y8vkw7472gb6y63n8lxld1wb1as6ah3fgwg8d44aq3wmzw1g")
+                      "0fz0kdqjhh8m5xc8fb7xsx5hsys8cdvm166h7i96zaqxr3gb3l7i")
                      ((string=? component "cargo")
-                      "12mxf2zawkji7lyz6rjmqz8lx3b5ql95r986zdg5jka094cm5wsk")
+                      "0pdkza4cp6chv5bslm77ndngyzym4yx7a1c74qc2vsf6sw3wwaby")
                      ((string=? component "rust-std")
-                      "0n6rwmgci12r9cmlpygsvcd1dvglzmmqg408hairwnxz4m10g6qh")
+                      "1m55z6y8nlj1n640hf3srb9vnmckpyaxndb1rlpdbpllcm4bd4a5")
                      ((string=? component "rust-src")
-                      "0bgjbgmhxc65bzi95i2jnm7vlm24rfzvxxqxaxrnnm6v8n6ai1g4")
+                      "0vpclyfv1ggv3xz72l4mv7gw42x2y440n5hsn9rwa05m35wglyhh")
                      (else
                       (error "no known hash for Rust component" component)))))
     (package
@@ -256,7 +256,7 @@ sources.")
       (synopsis "Upstream tarball for a component of the stable Rust release")
       (description
        "This package carries one tarball from the stable Rust release so it can be
-passed as an ordinary build input.  @code{rust-1.99} does the installation.")
+passed as an ordinary build input.  @code{rust-1.100} does the installation.")
       (home-page "https://rust-lang.org")
       (license (list expat asl2.0)))))
 
@@ -269,7 +269,7 @@ passed as an ordinary build input.  @code{rust-1.99} does the installation.")
 ;;; compiled C shims start them through the store's glibc loader.  It also
 ;;; carries rust-std, which the rustc component alone does not include -- without
 ;;; it every crate fails with "can't find crate for `std'".
-(define-public rust-1.99
+(define-public rust-1.100
   (package
     (name "rust")
     (version %rust-stable-version)
@@ -281,7 +281,7 @@ passed as an ordinary build input.  @code{rust-1.99} does the installation.")
        (file-name (string-append "rustc-" version
                                  "-x86_64-unknown-linux-gnu.tar.xz"))
        (sha256
-        (base32 "07q9y8vkw7472gb6y63n8lxld1wb1as6ah3fgwg8d44aq3wmzw1g"))))
+        (base32 "0fz0kdqjhh8m5xc8fb7xsx5hsys8cdvm166h7i96zaqxr3gb3l7i"))))
     ;; cargo-build-system asks its #:rust argument for a "cargo" output.
     (outputs (cons "cargo" (list "out")))
     (build-system trivial-build-system)
@@ -292,9 +292,9 @@ passed as an ordinary build input.  @code{rust-1.99} does the installation.")
            #~(begin
                (use-modules (patches rust-nightly-build))
                (build-rust-nightly %build-inputs %outputs
-                                    #:cargo-input-name "rust-1.99-cargo"
-                                    #:std-input-name "rust-1.99-rust-std"
-                                    #:src-input-name "rust-1.99-rust-src"
+                                    #:cargo-input-name "rust-1.100-cargo"
+                                    #:std-input-name "rust-1.100-rust-std"
+                                    #:src-input-name "rust-1.100-rust-src"
                                     ;; rust-src and rust-std tarballs carry the
                                     ;; whole lib/rustlib path below two top-level
                                     ;; components.
@@ -305,9 +305,9 @@ passed as an ordinary build input.  @code{rust-1.99} does the installation.")
            binutils
            gcc-toolchain
            bash
-           (rust-stable-carrier "rust-1.99-cargo" "cargo")
-           (rust-stable-carrier "rust-1.99-rust-std" "rust-std")
-           (rust-stable-carrier "rust-1.99-rust-src" "rust-src")))
+           (rust-stable-carrier "rust-1.100-cargo" "cargo")
+           (rust-stable-carrier "rust-1.100-rust-std" "rust-std")
+           (rust-stable-carrier "rust-1.100-rust-src" "rust-src")))
     (inputs
      (list glibc
            (list gcc "lib")

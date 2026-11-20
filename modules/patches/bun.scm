@@ -2,7 +2,7 @@
 ;;;
 ;;; bun --- the Bun JavaScript runtime, built from source.
 ;;;
-;;; Upstream: https://github.com/oven-sh/bun, tag bun-v1.4.4.
+;;; Upstream: https://github.com/oven-sh/bun, tag bun-v1.4.5.
 ;;;
 ;;; ---------------------------------------------------------------------------
 ;;; What the build needs, and which pieces are packaged where
@@ -155,7 +155,7 @@
 (define-public bun
   (package
     (name "bun")
-    (version "1.4.4")
+    (version "1.4.5")
     (source
      (origin
        (method url-fetch)
@@ -163,7 +163,7 @@
                            "bun-v" version ".tar.gz"))
        (file-name (string-append name "-" version ".tar.gz"))
        (sha256
-        (base32 "1zv8hj8ngzgyhil9p8anif0ypz42b4v4gy5w4p9ag4y3bbx3gkh0"))))
+        (base32 "0pi1n02lx5chrbmwqy8w0w51g7h7fyj6cy2rbgcz6kpc29fc538i"))))
     (build-system gnu-build-system)
     (arguments
      (list
@@ -311,7 +311,7 @@ looked for build/release/bun, build/debug/bun-debug and build/bun")))))
      "Bun is a JavaScript and TypeScript runtime, bundler, test runner and
 package manager, written in Rust and C++.
 
-This package builds Bun from the @code{bun-v1.4.4} source tarball using
+This package builds Bun from the @code{bun-v1.4.5} source tarball using
 upstream's own build script.  Because that script is executed by Bun itself,
 building Bun requires an existing Bun binary to bootstrap from; that seed is
 provided by @code{bun-bootstrap} and is the only prebuilt component.  The Rust

@@ -29,7 +29,7 @@
 (define-public tailwindcss
   (package
     (name "tailwindcss")
-    (version "4.3.4")
+    (version "4.3.5")
     (source
      (origin
        (method url-fetch)
@@ -38,7 +38,7 @@
              "v" version "/tailwindcss-linux-x64"))
        (file-name (string-append name "-" version "-linux-x64"))
        (sha256
-        (base32 "05yq76p3w6vjkwhwlpgdqi3hxbfgrffxmrhdq6lqfmc5bg78x6hl"))))
+        (base32 "1k6nhjr4ahcxzynl14yrbbmi1rnyifq3jf8zm4ihdnghwg79axp4"))))
     (build-system trivial-build-system)
     (arguments
      (list

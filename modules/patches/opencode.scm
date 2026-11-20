@@ -36,8 +36,9 @@
 ;;;
 ;;; Bun, and why it is patchelf'd here
 ;;; ----------------------------------
-;;; package.json pins bun@1.4.4, which is (patches bun-bootstrap), the prebuilt
-;;; release binary.  That package starts it through ld.so, which leaves
+;;; package.json pins bun@1.4.4; the build uses (patches bun-bootstrap),
+;;; currently 1.4.5 and compatible with the frozen lockfile.  That package
+;;; starts it through ld.so, which leaves
 ;;; process.execPath pointing at the loader.  For opencode that is fatal:
 ;;; Bun.build({compile}) makes the executable by copying the running Bun, so it
 ;;; would copy ld.so.  Instead the build uses a private copy of Bun whose
@@ -105,7 +106,7 @@ fs.writeFileSync(process.argv[3], String(server.port))
 (define-public opencode
   (package
     (name "opencode")
-    (version "2.2.5")
+    (version "2.3.2")
     (source
      (origin
        (method url-fetch)
@@ -113,7 +114,7 @@ fs.writeFileSync(process.argv[3], String(server.port))
                            "refs/tags/v" version ".tar.gz"))
        (file-name (string-append name "-" version ".tar.gz"))
        (sha256
-        (base32 "1fjgvj5r57zlg6vxgyq8fybicb289n8kkvw2d6iwghj7dkgiwqh4"))))
+        (base32 "0pfxvkiachrrwpx6jjr6hp96ps734k8mnlhwjrs87n9shnzrr06y"))))
     (build-system gnu-build-system)
     (arguments
      (list

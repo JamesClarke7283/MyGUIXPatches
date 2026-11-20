@@ -141,6 +141,28 @@
     ;; Python 3.13 provides tomllib, which this shim uses instead of tomli.
     (propagated-inputs '())))
 
+(define python313-pytest-guix
+  (package
+    (inherit python-pytest-guix)
+    (name "python313-pytest-guix")
+    (build-system trivial-build-system)
+    (arguments
+     (list
+      #:modules '((guix build utils))
+      #:builder
+      #~(begin
+          (use-modules (guix build utils))
+          ;; The plugin is pure Python.  Its normal package uses the trivial
+          ;; build system, so copy its modules rather than using #:python.
+          (copy-recursively
+           (string-append #$python-pytest-guix "/lib/python"
+                          #$(version-major+minor (package-version python))
+                          "/site-packages")
+           (string-append #$output "/lib/python3.13/site-packages")))))
+    (native-inputs '())
+    (inputs (list python-pytest-guix))
+    (propagated-inputs '())))
+
 (define with-python313
   (package-mapping
    (lambda (package)
@@ -158,12 +180,29 @@
        python313-setuptools-bootstrap)
       ((eq? package meson) python313-meson)
       ((eq? package maturin) python313-maturin)
+      ((eq? package python-pytest-guix) python313-pytest-guix)
       ((python-package? package)
        (package/inherit package
          (name (string-append "python313-" (package-name package)))
+         (native-inputs
+          ;; Guix's pytest wrappers load pytest_guix from the matching
+          ;; interpreter's site-packages directory.
+          (modify-inputs (package-native-inputs package)
+            (prepend python313-pytest-guix)))
          (arguments
           (substitute-keyword-arguments (package-arguments package)
-            ((#:python _ #f) python313-wrapper)))))
+            ((#:python _ #f) python313-wrapper)
+            ((#:phases phases #~%standard-phases)
+             (if (eq? package python-typing-extensions)
+                 #~(modify-phases #$phases
+                     (add-before 'check 'update-python313-literal-expectation
+                       (lambda _
+                         ;; Python 3.13.16 collapses nested empty Literal
+                         ;; arguments.  Adjust only this changed expectation.
+                         (substitute* "src/test_typing_extensions.py"
+                           (("^.*Literal\\[\\[\\], \\[\\]\\]\\.__args__.*$")
+                            "        self.assertEqual(Literal[[], []].__args__, ([],))")))))
+                 phases))))))
       (else package)))
    (lambda (package) (not (python-package? package)))))
 
@@ -255,14 +294,14 @@
 (define blender-core
   (package
     (inherit guix-blender)
-    (version "5.2.3")
+    (version "5.2.4")
     (source
      (origin
        (method url-fetch)
        (uri (string-append "https://download.blender.org/source/blender-"
                            version ".tar.xz"))
        (sha256
-        (base32 "0xiq53hd0igbgss154dav9bf8fad9kl2gz7cvs2dc9ns42my0rjw"))))
+        (base32 "1mgryiv4frx3a7xd74yrc58v52ki7zf2s5sscbyb6prjd4rsvxfk"))))
     (arguments
      (substitute-keyword-arguments (package-arguments guix-blender)
        ((#:configure-flags flags)

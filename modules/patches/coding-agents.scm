@@ -23,12 +23,13 @@
 ;;; have.  So this package installs the published tree and wraps the entry
 ;;; point, the same way the package is meant to be consumed.
 ;;;
-;;; dist/cli.js is very nearly self-contained.  Its only unbundled runtime
-;;; import is @oh-my-pi/pi-natives, the native-bindings package; the rest of
-;;; what upstream lists under "dependencies" (@opentelemetry/*, puppeteer-core,
-;;; axe-core, @babel/parser, the other @oh-my-pi/* packages) is inlined into
-;;; the bundle.  Everything else it imports is a Bun/Node builtin: bun:ffi,
-;;; bun:sqlite, bun:jsc, node:fs, node:net, node:tty, ...
+;;; dist/cli.js is very nearly self-contained.  Its unbundled runtime imports
+;;; are @oh-my-pi/pi-natives, the native-bindings package, and puppeteer-core
+;;; with two internal modules.  The rest of what upstream lists under
+;;; "dependencies" (@opentelemetry/*, axe-core, @babel/parser and the other
+;;; @oh-my-pi/* packages) is inlined into the bundle.  Everything else it
+;;; imports is a Bun/Node builtin: bun:ffi, bun:sqlite, bun:jsc, node:fs,
+;;; node:net, node:tty, ...
 ;;;
 ;;; Layout and module resolution
 ;;; ----------------------------
@@ -58,7 +59,7 @@
 ;;; (patches bun) does not build yet: it is missing the Rust nightly pinned in
 ;;; upstream's rust-toolchain.toml and offline copies of the C/C++ dependencies
 ;;; its build script fetches.  See bun.scm for the details.  bun-bootstrap *is*
-;;; Bun 1.4.4, so omp works today; what is not from-source yet is only the
+;;; Bun 1.4.5, so omp works today; what is not from-source yet is only the
 ;;; provenance of the runtime.  When `bun' becomes buildable, change the single
 ;;; bun-bootstrap reference in the 'install-wrap phase and the corresponding
 ;;; input to `bun'; nothing else has to move.
@@ -83,7 +84,7 @@
 (define-public oh-my-pi-natives
   (package
     (name "oh-my-pi-natives")
-    (version "18.15.0")
+    (version "19.0.1")
     (source
      (origin
        (method url-fetch)
@@ -91,7 +92,7 @@
                            "pi-natives-" version ".tgz"))
        (file-name (string-append name "-" version ".tgz"))
        (sha256
-        (base32 "0a2liw7n4hlh04lwf8ia2a086sh0s4rbad5j5bvw83v6nx8gbsj9"))))
+        (base32 "12xd52d5i3qmbhbhlpy6cs29x3yw21lkd1v5al01d35n3by1d69p"))))
     (build-system trivial-build-system)
     (arguments
      `(#:modules ((guix build utils))
@@ -131,7 +132,7 @@ own.")
 (define-public oh-my-pi-natives-linux-x64
   (package
     (name "oh-my-pi-natives-linux-x64")
-    (version "18.15.0")
+    (version "19.0.1")
     (source
      (origin
        (method url-fetch)
@@ -140,7 +141,7 @@ own.")
                            "pi-natives-linux-x64-" version ".tgz"))
        (file-name (string-append name "-" version ".tgz"))
        (sha256
-        (base32 "07hyi358n459m6gxpas8mx24bwbak714h8pigl9nx7vnn3ipw996"))))
+        (base32 "0i29m3s7krcmgjyzpcp6dm2rni3jcymk1wny434i2sxqnjspgr11"))))
     (build-system trivial-build-system)
     (arguments
      `(#:modules ((guix build utils))
@@ -184,10 +185,46 @@ fetched; see README.md for what that would take.")
 ;;; The agent itself.
 ;;;
 
+(define oh-my-pi-puppeteer-core
+  (package
+    (name "oh-my-pi-puppeteer-core")
+    (version "25.3.0")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://registry.npmjs.org/puppeteer-core/-/"
+                           "puppeteer-core-" version ".tgz"))
+       (file-name (string-append name "-" version ".tgz"))
+       (sha256
+        (base32 "0grphwffl547igh2712vnj33fig78rqis2y0y3pg2ia4agnd8zm8"))))
+    (build-system trivial-build-system)
+    (arguments
+     `(#:modules ((guix build utils))
+       #:builder
+       (begin
+         (use-modules (guix build utils))
+         (let ((out (assoc-ref %outputs "out"))
+               (source (assoc-ref %build-inputs "source"))
+               (tar (assoc-ref %build-inputs "tar"))
+               (gzip (assoc-ref %build-inputs "gzip")))
+           (setenv "PATH" (string-append gzip "/bin:" tar "/bin"))
+           (invoke (string-append tar "/bin/tar") "xzf" source "-C" ".")
+           (copy-recursively
+            "package" (string-append out "/lib/node_modules/puppeteer-core"))))))
+    (native-inputs (list tar gzip))
+    (supported-systems '("x86_64-linux"))
+    (synopsis "Puppeteer dependency external to oh-my-pi's bundle")
+    (description
+     "This package carries the exact puppeteer-core release required by
+oh-my-pi 19.  The agent's bundle leaves its main module, revisions data and
+Function.js utility external instead of inlining them.")
+    (home-page "https://pptr.dev/")
+    (license asl2.0)))
+
 (define-public oh-my-pi
   (package
     (name "oh-my-pi")
-    (version "18.15.0")
+    (version "19.0.1")
     (source
      (origin
        (method url-fetch)
@@ -195,7 +232,7 @@ fetched; see README.md for what that would take.")
                            "pi-coding-agent-" version ".tgz"))
        (file-name (string-append name "-" version ".tgz"))
        (sha256
-        (base32 "0rglkdrn1vc5i2x3zd796jaqc3zrkm4z566nvkzsr23s7gfw8df9"))))
+        (base32 "1g5sla5sxb0pnh59gwiqpw8vni1i24v0qsidllj8mg70qc5ghiaa"))))
     (build-system trivial-build-system)
     (arguments
      `(#:modules ((guix build utils))
@@ -208,6 +245,7 @@ fetched; see README.md for what that would take.")
                 (bash         (assoc-ref %build-inputs "bash"))
                 (bun          (assoc-ref %build-inputs "bun-bootstrap"))
                 (natives      (assoc-ref %build-inputs "oh-my-pi-natives"))
+                (puppeteer    (assoc-ref %build-inputs "oh-my-pi-puppeteer-core"))
                 (gzip         (assoc-ref %build-inputs "gzip"))
                 ;; The compiled addon; the JS package above ships loaders only.
                 (addon        (assoc-ref %build-inputs "oh-my-pi-natives-linux-x64"))
@@ -224,6 +262,12 @@ fetched; see README.md for what that would take.")
            (invoke (string-append tar "/bin/tar") "xzf" source "-C" ".")
            (mkdir-p node-modules)
            (copy-recursively "package" app)
+
+           ;; Version 19 leaves puppeteer-core and two of its internal
+           ;; modules outside the bundle, so resolve them from this sibling.
+           (copy-recursively
+            (string-append puppeteer "/lib/node_modules/puppeteer-core")
+            (string-append out "/lib/node_modules/puppeteer-core"))
 
            ;; ... and place the bindings next to it, so that the bundle's
            ;; bare import of @oh-my-pi/pi-natives resolves (see the comment
@@ -259,7 +303,8 @@ fetched; see README.md for what that would take.")
      (list bash
            bun-bootstrap
            oh-my-pi-natives
-           oh-my-pi-natives-linux-x64))
+           oh-my-pi-natives-linux-x64
+           oh-my-pi-puppeteer-core))
     (native-inputs
      (list tar gzip))
     ;; bun-bootstrap only exists for x86_64-linux, and the bundled native

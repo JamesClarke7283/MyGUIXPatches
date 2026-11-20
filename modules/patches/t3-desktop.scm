@@ -9,7 +9,7 @@
 ;;; Why the AppImage, and why the bundled Electron
 ;;; ---------------------------------------------
 ;;; Upstream publishes the desktop app only as an electron-builder AppImage
-;;; (T3-Code-<version>-x86_64.AppImage).  It bundles Electron 44.10.0 together
+;;; (T3-Code-x86_64.AppImage).  It bundles Electron 44.10.0 together
 ;;; with the app's native modules -- node-pty, @napi-rs/keyring, ffi-rs, xa11y --
 ;;; which are prebuilt for that exact Electron ABI.  nonguix's `electron' is
 ;;; 41.x, so substituting it would break those modules with a
@@ -41,23 +41,23 @@
   #:use-module (nonguix build-system chromium-binary))
 
 ;; Byte offset of the squashfs payload inside the pinned AppImage, as printed by
-;; `T3-Code-0.1.6-x86_64.AppImage --appimage-offset'.  It is a property of the
+;; `T3-Code-x86_64.AppImage --appimage-offset'.  It is a property of the
 ;; artifact, which the origin below pins by hash.
 (define %appimage-squashfs-offset "944632")
 
 (define-public t3-code-desktop
   (package
     (name "t3-code-desktop")
-    (version "0.1.6")
+    (version "0.1.11")
     (source
      (origin
        (method url-fetch)
        (uri (string-append "https://github.com/pingdotgg/t3code/releases/"
-                           "download/v" version "/T3-Code-" version
+                           "download/v" version "/T3-Code"
                            "-x86_64.AppImage"))
        (file-name (string-append name "-" version ".AppImage"))
        (sha256
-        (base32 "1l1lvxnwk0glqacnhq40sx5i8ifrl6p4ds3b76dk0yf711r51qh9"))))
+        (base32 "053bd38iz0ydvbnbj06qwjkdc1khxl8v4vs6d6fp4gxapfkhdalb"))))
     (build-system chromium-binary-build-system)
     (arguments
      (list
@@ -79,7 +79,11 @@
       #:wrapper-plan
       #~'(("t3code" (("out" "/share/t3code")))
           "chrome-sandbox"
-          "chrome_crashpad_handler")
+          "chrome_crashpad_handler"
+          "resources/browser-secret/t3-browser-secret"
+          "resources/kde-capture/t3-kde-snap-shot"
+          "resources/hyprland-capture/t3-hyprland-snap-shot"
+          "resources/resource-monitor/t3-resource-monitor")
       #:phases
       #~(modify-phases %standard-phases
           (delete 'binary-unpack)

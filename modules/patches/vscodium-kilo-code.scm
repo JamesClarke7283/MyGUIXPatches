@@ -33,7 +33,7 @@
 (define-public vscodium-kilo-code
   (package
     (name "vscodium-kilo-code")
-    (version "7.8.27")                ; latest stable, non-pre-release tag
+    (version "7.8.32")                ; latest stable, non-pre-release tag
     (source
      (origin
        (method url-fetch)
@@ -43,7 +43,7 @@
          version "/kilo-vscode-linux-x64.vsix"))
        (file-name (string-append name "-" version "-linux-x64.vsix"))
        (sha256
-        (base32 "1capkvzz70gr17zmp84dpyfyaa8vfvagy3z60xfv52b50hzpvqmq"))))
+        (base32 "1d4c70rn42jlqv3nvdy5jha1af054crc10ysji25mwh91ha8xyhw"))))
     (build-system trivial-build-system)
     (arguments
      (list

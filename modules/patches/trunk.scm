@@ -25,7 +25,7 @@
 (define-public trunk
   (package
     (name "trunk")
-    (version "0.22.1")
+    (version "0.22.2")
     (source
      (origin
        (method url-fetch)
@@ -35,7 +35,7 @@
        (file-name (string-append name "-" version
                                  "-x86_64-unknown-linux-musl.tar.gz"))
        (sha256
-        (base32 "0qsk7zarfs6d2v616q7gdpshczra0abd565mcrpsgxakn3b5rzm1"))))
+        (base32 "0nzj43lan7y8pag3fshwxfqhz3jqxq6ww7s0nzcg6ly5jdnj342a"))))
     (build-system trivial-build-system)
     (arguments
      (list

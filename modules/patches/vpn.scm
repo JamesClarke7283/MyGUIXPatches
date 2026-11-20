@@ -143,7 +143,7 @@
       ;; idiom, e.g. gnu/packages/rust-apps.scm.
       ;; Guix ships rust 1.93.0, but 2026.5 declares rust-version = "1.95.0"
       ;; and cargo-build-system refuses to build with anything older.
-      #:rust rust-1.99
+      #:rust rust-1.100
       ;; mullvad-problem-report backs the GUI's "Report a problem" page, which
       ;; runs it from the GUI's resources directory.
       #:cargo-build-flags

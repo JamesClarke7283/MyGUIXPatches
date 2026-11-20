@@ -39,7 +39,7 @@
 (define python-httpcore2-2.16
   (package
     (inherit python-httpcore2)
-    (version "2.16.0")
+    (version "2.16.2")
     (source
      (origin
        (method git-fetch)
@@ -48,13 +48,13 @@
              (commit (string-append "v" version))))
        (file-name (git-file-name "python-httpcore2" version))
        (sha256
-        (base32 "0wgshn0g3lra3wxxim64xs0s1wf7b50kvh64apfdlrgmhrhycvm0"))))))
+        (base32 "1p6s7gpy5skgdx9gzsygcj0b3ar3x9i2j3swrq5z9yq4iz6d62yv"))))))
 
 (define python-httpx2-2.16
   (package
     (inherit python-httpx2-minimal)
     (name "python-httpx2")
-    (version "2.16.0")
+    (version "2.16.2")
     (source
      (origin
        (method git-fetch)
@@ -63,7 +63,7 @@
              (commit (string-append "v" version))))
        (file-name (git-file-name name version))
        (sha256
-        (base32 "0wgshn0g3lra3wxxim64xs0s1wf7b50kvh64apfdlrgmhrhycvm0"))))
+        (base32 "1p6s7gpy5skgdx9gzsygcj0b3ar3x9i2j3swrq5z9yq4iz6d62yv"))))
     (propagated-inputs
      (modify-inputs (package-propagated-inputs python-httpx2-minimal)
        (replace "python-httpcore2" python-httpcore2-2.16)))))

@@ -16,11 +16,9 @@
 ;;; VS Code fork on the download page.  This module packages the "Antigravity"
 ;;; application.
 ;;;
-;;; Two helper executables under resources/bin are spawned by the application and
-;;; carry FHS interpreters of their own -- language_server uses
-;;; /lib64/ld-linux-x86-64.so.2 and webm_encoder uses Google's grte loader,
-;;; /usr/grte/v5/lib64/ld-linux-x86-64.so.2 -- so they are named in the wrapper
-;;; plan as well.  Both need only glibc libraries.
+;;; The language_server helper under resources/bin is spawned by the application
+;;; and carries its own FHS interpreter, /lib64/ld-linux-x86-64.so.2, so it is
+;;; named in the wrapper plan as well.  It needs only glibc libraries.
 ;;;
 ;;; The tarball ships no .desktop file and no icons, so the official
 ;;; apple-touch-icon is fetched as a second origin and installed into the
@@ -40,7 +38,7 @@
   #:use-module (nonguix build-system chromium-binary))
 
 ;; The build number is part of the download URL and changes every release.
-(define %antigravity-build "2.28.2-5937220255875072")
+(define %antigravity-build "2.33.0-4731201358004224")
 
 ;; The tarball ships no icon; fetch the official apple-touch-icon instead.
 ;; A local-file here would be resolved relative to whatever directory Guix
@@ -56,7 +54,7 @@
 (define-public antigravity
   (package
     (name "antigravity")
-    (version "2.28.2")
+    (version "2.33.0")
     (source
      (origin
        (method url-fetch)
@@ -66,7 +64,7 @@
              "/linux-x64/Antigravity.tar.gz"))
 
        (sha256
-        (base32 "1hrqw734szwk0xx0g0cmlgl3glphfrpj624bavzvlqw8125r74mx"))))
+        (base32 "0l2hafldhb03cpc9dvga80riavmjqlri2wv0i0lgbcf656r8fcx7"))))
     (build-system chromium-binary-build-system)
     (arguments
      (list
@@ -88,8 +86,6 @@
           "chrome-sandbox"
           "chrome_crashpad_handler"
           ("resources/bin/language_server"
-           (("out" "/share/antigravity")))
-          ("resources/bin/webm_encoder"
            (("out" "/share/antigravity"))))
       #:phases
       #~(modify-phases %standard-phases

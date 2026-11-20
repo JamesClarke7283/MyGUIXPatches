@@ -37,7 +37,7 @@
 (define-public chatgpt-desktop
   (package
     (name "chatgpt-desktop")
-    (version "26.1103.32239")
+    (version "26.1117.31558")
     (source
      (origin
        (method url-fetch)
@@ -46,7 +46,7 @@
              "pool/main/c/chatgpt/chatgpt_" version "_amd64.deb"))
        (file-name (string-append name "-" version ".deb"))
        (sha256
-        (base32 "1vv42dwbba83x55bv4aq5hwf6hbps9i36bgrvfw2zid2is00ih8q"))))
+        (base32 "00rw0kvq1imivv1phpcfyx8qm0173ph9ji8la6zc32zp2iij01vc"))))
     (build-system chromium-binary-build-system)
     (arguments
      (list

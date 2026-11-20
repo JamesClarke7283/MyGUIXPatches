@@ -178,7 +178,7 @@ GDExtension libraries and C#/.NET exports have not been tested.
 
 ## Blender
 
-`(patches blender)` provides Blender **5.2.3 LTS**, built from upstream source.
+`(patches blender)` provides Blender **5.2.4 LTS**, built from upstream source.
 It supersedes Guix's Blender 4.5.10 and supports the MCP extension below.
 The package uses Python 3.13, a matching NumPy build, OpenColorIO 2.5,
 OpenImageIO 3.1, and the Ceres revision used by Blender upstream. It supports
@@ -188,8 +188,8 @@ metadata.
 
 Build and install it from this checkout:
 
-    guix build -L modules blender@5.2.3
-    guix install -L modules blender@5.2.3
+    guix build -L modules blender@5.2.4
+    guix install -L modules blender@5.2.4
 
 Close a running older Blender and launch `blender` again after updating.
 
@@ -210,7 +210,7 @@ Build or install both from this checkout:
     guix install -L modules blender-mcp blender-mcp-extension
 
 **The extension requires Blender 5.1 or newer.** Use this channel's Blender
-5.2.3; upstream Guix's 4.5.10 rejects the extension as incompatible. The
+5.2.4; upstream Guix's 4.5.10 rejects the extension as incompatible. The
 documentation tools in `blender-mcp` work without Blender.
 
 The extension installs under `share/blender/extensions/system/mcp` and
@@ -256,7 +256,7 @@ clients you trust.
 All three packages build with Guix. Blender's build checks that its built-in
 extension manager loads; the server's build runs all 102 upstream tests that
 do not require Blender. All 41 upstream background integration tests pass
-against this source-built Blender 5.2.3 with a longer test-client timeout for
+against this source-built Blender 5.2.4 with a longer test-client timeout for
 CPU rendering. A separate round trip loads the packaged add-on from the
 System repository, confirms discovery of 26 tools, checks Python 3.13 and
 NumPy, and renders a PNG with Cycles on the CPU.
@@ -278,10 +278,10 @@ Close a running older GIMP and launch `gimp` again after updating.
 
 Two packages in `(patches gimp)` provide [GIMP
 MCP](https://github.com/gimp-mcp/gimp-mcp), built from the same pinned upstream
-commit (upstream tags no releases):
+v0.5.0 tag:
 
 - `gimp-mcp` provides `gimp-mcp-server`, the command an MCP client launches.
-  It exposes 79 tools: adjustments, transforms, selections, layers, drawing,
+  It exposes 80 tools: adjustments, transforms, selections, layers, drawing,
   text, filters, PNG snapshots of the image for checking each step, and
   arbitrary GIMP Python execution.
 - `gimp-mcp-plugin` provides the GIMP plug-in that executes the server's
@@ -323,8 +323,8 @@ plug-in accepts any local connection on port 9877. Only connect clients you
 trust.
 
 The server's build checks that it imports under `mcp` 1.30.0 and registers
-all 79 tools. The plug-in's build starts the installed plug-in in GIMP 3.2.8
-on a virtual X server and runs upstream's `run_tests.py`; all 59 checks pass.
+all 80 tools. The plug-in's build starts the installed plug-in in GIMP 3.2.8
+on a virtual X server and runs upstream's `run_tests.py`; all 113 checks pass.
 A stdio round trip through the installed `gimp-mcp-server` also connects to
 GIMP 3.2.8 and returns an image snapshot.
 
@@ -392,7 +392,7 @@ packaged workbench through the user module link.
 
 ## Security assessment tools and MCP
 
-`(patches security)` provides **Metasploit Framework 6.5.10**, **Nmap 7.993**,
+`(patches security)` provides **Metasploit Framework 6.5.12**, **Nmap 7.993**,
 **Gobuster 3.8.2**, **SecLists 2026.2**, and **ZAP 2.17.0** with the ZAP Dev
 Team's official **MCP Integration 0.4.0** add-on.  Install all six packages into
 the default profile:
@@ -623,7 +623,7 @@ namespaces. The interpreter itself is
 
 ## Tailwind CSS CLI
 
-`(patches tailwindcss)` provides `tailwindcss` 4.3.4, the standalone Tailwind
+`(patches tailwindcss)` provides `tailwindcss` 4.3.5, the standalone Tailwind
 CSS command-line tool. It scans source files and writes the generated
 stylesheet, and bundles the v4 Oxide engine and default theme, so it needs no
 Node.js or JavaScript toolchain at run time.
@@ -645,7 +645,7 @@ stripping it makes it report Bun's version and fail to compile CSS.
 
 ## Trunk
 
-`(patches trunk)` provides `trunk` 0.22.1, the Rust WebAssembly web application
+`(patches trunk)` provides `trunk` 0.22.2, the Rust WebAssembly web application
 bundler. It builds and bundles WASM, JavaScript snippets and static assets from
 a source HTML file and `Trunk.toml`, and provides a development server with
 change detection and proxy support.
@@ -685,9 +685,9 @@ crate has to reach the build as a fixed-output origin.
 
 The first build compiles several hundred crates and takes a long while.
 
-### Version choice: 1.99.1, via `(patches rust-nightly)`
+### Version choice: 1.100.0, via `(patches rust-nightly)`
 
-Built with `rust-1.99`, which packages the current stable Rust release. Guix
+Built with `rust-1.100`, which packages the current stable Rust release. Guix
 ships 1.93.0 and carries nothing newer, while this tag declares
 `rust-version = "1.95.0"`, so the compiler has to come from this channel.
 See the rust-nightly section below.
@@ -942,7 +942,7 @@ build input and is what a from-source version would compile from.
 
 Split in two, because Bun cannot bootstrap itself.
 
-`(patches bun)` builds Bun 1.4.4 from the `bun-v1.4.4` source tarball using
+`(patches bun)` builds Bun 1.4.5 from the `bun-v1.4.5` source tarball using
 upstream's own build script. `(patches bun-bootstrap)` supplies the one
 prebuilt binary that makes that possible.
 
@@ -998,7 +998,7 @@ offset, so any shift breaks it.
 Instead the binary is kept byte-for-byte pristine in `libexec/` and started
 through the store's glibc loader by a small **compiled C** shim (not a shell
 script, see below). Verified against the same artifact: `bun --version` prints
-`1.4.4`, `bun script.ts` and `bun run` both work.
+`1.4.5`, `bun script.ts` and `bun run` both work.
 
 ### Why the shim is C, and what it cannot fix
 
@@ -1052,24 +1052,26 @@ Configure succeeds inside Guix and reports the real profile:
 It works:
 
     $ omp --version
-    omp/18.15.0
+    omp/19.0.1
     $ omp --help
-    omp v18.15.0
+    omp v19.0.1
     ...
 
-It is built from three published artefacts plus the Bun runtime:
+It is built from four published artefacts plus the Bun runtime:
 
 | package | what it is |
 | --- | --- |
 | `oh-my-pi` | `@oh-my-pi/pi-coding-agent` — `dist/`, `src/`, `skills/`, `prompts/` |
 | `oh-my-pi-natives` | `@oh-my-pi/pi-natives` — the JavaScript loaders |
 | `oh-my-pi-natives-linux-x64` | `@oh-my-pi/pi-natives-linux-x64` — the compiled N-API addon |
+| `oh-my-pi-puppeteer-core` | `puppeteer-core` 25.3.0 — the bundle's external browser modules |
 
 There is no compile step. `dist/cli.js` is an ~18 MB bundle that Bun executes
 directly; re-bundling it with `bun build` would reproduce the artefact we
 already have. Everything the bundle imports is either inlined into it or a
-Bun/Node builtin (`bun:ffi`, `bun:sqlite`, `bun:jsc`, `node:fs`, …), with one
-exception: `@oh-my-pi/pi-natives`.
+Bun/Node builtin (`bun:ffi`, `bun:sqlite`, `bun:jsc`, `node:fs`, …), except for
+`@oh-my-pi/pi-natives` and `puppeteer-core` with its revisions data and
+`Function.js` utility.
 
 ### The addon is a separate package, and that is not obvious
 
@@ -1089,16 +1091,17 @@ probes for them.
 
 ### Module resolution
 
-Both JS packages are installed flat under `lib/node_modules`:
+The JS packages are installed flat under `lib/node_modules`:
 
     <out>/lib/node_modules/@oh-my-pi/pi-coding-agent
     <out>/lib/node_modules/@oh-my-pi/pi-natives
+    <out>/lib/node_modules/puppeteer-core
 
 Bun, like Node, resolves a bare specifier by walking up from the importing file
 and trying `<ancestor>/node_modules/<specifier>` at each level. From
 `.../pi-coding-agent/dist/cli.js` the ancestor `lib` yields
 `lib/node_modules/@oh-my-pi/pi-natives`, so the bundle's bare import resolves
-with no `NODE_PATH` juggling. The two packages must stay siblings.
+with no `NODE_PATH` juggling. These packages must stay siblings.
 
 ### Runtime
 
@@ -1106,7 +1109,7 @@ with no `NODE_PATH` juggling. The two packages must stay siblings.
 imports `bun:ffi`, `bun:sqlite` and `bun:jsc`.
 
 The wrapper currently points at `bun-bootstrap`, because `(patches bun)` does
-not build yet. `bun-bootstrap` *is* Bun 1.4.4, so `omp` works today; what is not
+not build yet. `bun-bootstrap` *is* Bun 1.4.5, so `omp` works today; what is not
 from-source is only the provenance of its runtime. When `bun` becomes buildable,
 change the single `bun-bootstrap` reference in the `install`-wrap step and the
 corresponding input; nothing else moves.
@@ -1135,8 +1138,8 @@ build:
 
 | Package | Upstream artifact | Why no source build |
 | --- | --- | --- |
-| `t3-code` | `t3-0.1.6-linux-x64.tar.gz` | Node single-executable application |
-| `codex` | `@openai/codex@0.167.0-linux-x64` | Rust, but vendoring to 1308 crates / 1.8 GB |
+| `t3-code` | `t3-0.1.11-linux-x64.tar.gz` | Node single-executable application |
+| `codex` | `@openai/codex@0.171.0-linux-x64` | Rust, but vendoring to 1308 crates / 1.8 GB |
 | `claude-code` | `@anthropic-ai/claude-code-linux-x64` | closed source |
 
 `codex` is statically linked and runs as-is. The other two carry a PT_INTERP of
@@ -1171,7 +1174,7 @@ loader would put `import.meta.dirname` back in glibc's store directory.
 Verify:
 
     $ t3 --version
-    t3 v0.1.6
+    t3 v0.1.11
     $ t3 --port 5000 --no-browser &
     $ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:5000/
     200
@@ -1185,7 +1188,7 @@ start.
 
 `t3-code` is the CLI: it serves the web client and opens a browser. For a native window, install `t3-code-desktop` as well. It is the Electron shell upstream ships as
 
-    T3-Code-0.1.6-x86_64.AppImage
+    T3-Code-x86_64.AppImage
 
 a standard electron-builder AppImage whose payload is a squashfs image starting at byte offset 944632 (printed by `--appimage-offset`). The recipe therefore extracts it with `unsquashfs -o`, which needs neither FUSE nor `/proc/self/exe` — both awkward in a Guix build sandbox.
 
@@ -1207,7 +1210,7 @@ The desktop entry is `t3code.desktop` (`Name=T3 Code`). The CLI's browser entry 
 
 ## Kilo Code for VSCodium
 
-`(patches vscodium-kilo-code)` provides **Kilo Code 7.8.27**, the latest stable,
+`(patches vscodium-kilo-code)` provides **Kilo Code 7.8.32**, the latest stable,
 non-pre-release upstream version, on `x86_64-linux`.  Two packages are
 available:
 
@@ -1251,7 +1254,7 @@ server.
 ## opencode
 
 `(patches opencode)` builds [opencode](https://github.com/anomalyco/opencode)
-**2.2.5** from the release tarball, the same way upstream's release builds do:
+**2.3.2** from the release tarball, the same way upstream's release builds do:
 `packages/cli/script/build.ts --single` builds the web UI (`packages/app`,
 with Vite), then bundles the CLI with Bun into one executable that embeds the
 web UI, the native libraries it loads, and the models.dev catalogue snapshot
@@ -1285,8 +1288,8 @@ The closure is 672 MiB; the executable alone is 241 MiB.
 `bun.lock` pins about 2,500 packages for the whole monorepo. With
 `--frozen-lockfile`, `bun install` fetches no package metadata, only tarballs
 whose URLs it derives from the lockfile, and it checks each against the
-lockfile's sha512. `(patches npm opencode)` pins the 1,134 tarballs that this
-install requests for `packages/cli` and `packages/app` (1,133 from npm, plus
+lockfile's sha512. `(patches npm opencode)` pins the 1,136 tarballs that this
+install requests for `packages/cli` and `packages/app` (1,135 from npm, plus
 `ghostty-web` from GitHub), one origin each, using the lockfile's sha512 values
 as the Guix hashes.
 
@@ -1311,7 +1314,8 @@ The `bun install` flags in the script and in the package's
 
 ### Bun, patched with patchelf 0.18
 
-`package.json` pins `bun@1.4.4`, which is `bun-bootstrap`. That package starts
+`package.json` pins `bun@1.4.4`; the build uses `bun-bootstrap` 1.4.5, which
+accepts the frozen lockfile. That package starts
 Bun through `ld.so`, which makes `process.execPath` the loader. opencode cannot
 build that way: `Bun.build({ compile })` creates the executable by copying the
 running Bun, so it would copy `ld.so`.
@@ -1363,7 +1367,7 @@ that is a different program and is not packaged here.
 Upstream publishes Linux builds only as a plain Electron tarball:
 
     https://storage.googleapis.com/antigravity-public/antigravity-hub/
-      2.28.2-5937220255875072/linux-x64/Antigravity.tar.gz
+      2.33.0-4731201358004224/linux-x64/Antigravity.tar.gz
 
 so the recipe is structurally the same as `t3-code-desktop`: nonguix's
 `chromium-binary-build-system` supplies the Electron library set, patches the
@@ -1408,11 +1412,11 @@ the scheme to `antigravity.desktop`, and the redirect reopens the running app
 Verify:
 
     $ antigravity
-    # log: "Starting app (v2.28.2) ...", "Host bridge server listening on ..."
+    # log: "Starting app (v2.33.0) ...", "Host bridge server listening on ..."
 
 ## ChatGPT desktop
 
-`(patches chatgpt-desktop)` provides **ChatGPT 26.1103.32239**, OpenAI's
+`(patches chatgpt-desktop)` provides **ChatGPT 26.1117.31558**, OpenAI's
 desktop client, from the official Linux preview `.deb`. It bundles its own
 Electron runtime under `share/chatgpt`, together with the Codex integration,
 the app's native modules and the Chrome extension host. The launcher and the
@@ -1436,7 +1440,7 @@ available on Linux yet.
 
 ## Claude desktop
 
-`(patches claude-desktop)` provides **Claude Desktop 4.23118.0**, Anthropic's
+`(patches claude-desktop)` provides **Claude Desktop 5.11492.5**, Anthropic's
 desktop client, from the official Linux beta `.deb`. It bundles its own
 Electron runtime under `share/claude-desktop`; the launcher, crash handler,
 Chrome native host, the disclaimer binary and the bundled `virtiofsd` helper

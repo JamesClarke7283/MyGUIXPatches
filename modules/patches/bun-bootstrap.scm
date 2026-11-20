@@ -74,14 +74,14 @@
 (define-public bun-bootstrap
   (package
     (name "bun-bootstrap")
-    (version "1.4.4")
+    (version "1.4.5")
     (source
      (origin
        (method url-fetch)
        (uri (string-append "https://github.com/oven-sh/bun/releases/download/"
                            "bun-v" version "/bun-linux-x64.zip"))
        (sha256
-        (base32 "0p1rrgy55nry189wdnrlfl3xib8pag2iavcs1yg1b00b5gxwp35z"))))
+        (base32 "1sv66qnb056jih5002kfs3byzwklxi641wpraaaa95c9a8xrnmcl"))))
     (build-system trivial-build-system)
     (arguments
      `(#:modules ((guix build utils))

@@ -43,10 +43,10 @@
 ;;; Verified by hand against these exact artifacts before writing this file:
 ;;;
 ;;;   $ ld-linux-x86-64.so.2 --library-path <glibc>/lib:<gcc>/lib claude --version
-;;;   2.1.322 (Claude Code)
+;;;   2.1.329 (Claude Code)
 ;;;
 ;;;   $ codex --version
-;;;   codex-cli 0.167.0
+;;;   codex-cli 0.171.0
 ;;;
 ;;; `t3' is the awkward one: a Node single-executable application.  A
 ;;; single-executable derives `import.meta.dirname' -- and with it where it looks
@@ -74,6 +74,7 @@
   #:use-module (gnu packages bash)
   #:use-module (gnu packages commencement)  ; gcc-toolchain
   #:use-module (gnu packages compression)   ; gzip
+  #:use-module (gnu packages elf)           ; patchelf, for Codex's voice host
   #:use-module (gnu packages freedesktop)  ; xdg-utils, for opening a browser
   #:use-module (gnu packages gcc))          ; gcc:lib, for libstdc++
 
@@ -132,7 +133,7 @@ int main(int argc, char **argv) {
 (define-public t3-code
   (package
     (name "t3-code")
-    (version "0.1.6")
+    (version "0.1.11")
     (source
      (origin
        (method url-fetch)
@@ -141,7 +142,7 @@ int main(int argc, char **argv) {
                            "-linux-x64.tar.gz"))
        (file-name (string-append name "-" version ".tar.gz"))
        (sha256
-        (base32 "1rkppdbisl8rq25zvilxbp53fij0dnxrwrsvvljgahgf1nlivwvw"))))
+        (base32 "1q8kl356v0w7fzn0qa42dnyj3nz7m8j56gc69bmavddwyl3iqs9b"))))
     (build-system trivial-build-system)
     (arguments
      (list #:modules '((guix build utils))
@@ -268,7 +269,7 @@ path that Guix System does not have.")
 (define-public codex
   (package
     (name "codex")
-    (version "0.167.0")
+    (version "0.171.0")
     (source
      (origin
        (method url-fetch)
@@ -276,7 +277,7 @@ path that Guix System does not have.")
                            version "-linux-x64.tgz"))
        (file-name (string-append name "-" version ".tgz"))
        (sha256
-        (base32 "0d24dl1gbqd1lfyhdsbfqis1kbqzf1gh43fj74skqldv3a3smj9d"))))
+        (base32 "0mafry82xf39pwdhianvgbcarqh7mpj40haz1cbccg2kn2pnfgg1"))))
     (build-system trivial-build-system)
     (arguments
      (list #:modules '((guix build utils))
@@ -286,6 +287,8 @@ path that Guix System does not have.")
                (let* ((tar  #$(file-append tar "/bin/tar"))
                       (gzip-bin #$(file-append gzip "/bin"))
                       (out  (assoc-ref %outputs "out"))
+                      (patchelf (assoc-ref %build-inputs "patchelf"))
+                      (glibc (assoc-ref %build-inputs "glibc"))
                       (vendor (string-append out "/libexec/codex/vendor/"
                                              "x86_64-unknown-linux-musl")))
                  (setenv "PATH" (string-append (dirname tar) ":" gzip-bin))
@@ -300,21 +303,42 @@ path that Guix System does not have.")
                  (mkdir-p (dirname vendor))
                  (copy-recursively "package/vendor/x86_64-unknown-linux-musl"
                                    vendor)
+
+                 ;; The main Codex executables are static, but the new voice
+                 ;; host is not.  Its upstream RUNPATH already finds the
+                 ;; bundled GStreamer libraries; add glibc and use its loader.
+                 (let ((voice-host
+                        (string-append vendor "/codex-resources/voice/bin/"
+                                       "codex-voice-host")))
+                   (when (file-exists? voice-host)
+                     (invoke (string-append patchelf "/bin/patchelf")
+                             "--set-interpreter"
+                             (string-append glibc "/lib/ld-linux-x86-64.so.2")
+                             voice-host)
+                     (invoke (string-append patchelf "/bin/patchelf")
+                             "--set-rpath"
+                             (string-append vendor "/codex-resources/voice/lib:"
+                                            glibc "/lib")
+                             voice-host)))
+
                  (mkdir-p (string-append out "/bin"))
                  ;; Statically linked, so a symlink is enough.
                  (symlink (string-append vendor "/bin/codex")
                           (string-append out "/bin/codex"))
                  #t))))
     (native-inputs
-     (list gzip tar))
+     (list gzip tar patchelf))
+    (inputs
+     (list glibc))
     (supported-systems '("x86_64-linux"))
     (synopsis "OpenAI Codex command-line interface")
     (description
      "Codex is OpenAI's coding agent, run as @command{codex} in a terminal.  This
-package installs upstream's @code{linux-x64} build, a single statically linked
-executable, so no loader shim is needed.  Its helper binaries and resources are
-installed beside it under @file{libexec/codex}, because the CLI resolves them
-relative to its own path.
+package installs upstream's @code{linux-x64} build.  The main executable and
+sandbox helpers are statically linked; the voice host is patched to use the
+store's glibc loader and its bundled GStreamer libraries.  All helper binaries
+and resources are installed beside it under @file{libexec/codex}, because the
+CLI resolves them relative to its own path.
 
 Note: Codex is open source and was attempted from source.  The workspace vendors
 to 1308 crates (1.8 GB) once the @code{v8-poc} member, which pulls in all of
@@ -331,7 +355,7 @@ vendor tree hosted somewhere first.")
 (define-public claude-code
   (package
     (name "claude-code")
-    (version "2.1.322")
+    (version "2.1.329")
     (source
      (origin
        (method url-fetch)
@@ -340,7 +364,7 @@ vendor tree hosted somewhere first.")
                            version ".tgz"))
        (file-name (string-append name "-" version ".tgz"))
        (sha256
-        (base32 "06bjnla548m1483x348przw48cli5nylblspc2v0mhl057c7bh9w"))))
+        (base32 "1fv0437h7kh87lrzh97jsjr382nw6xdp7xf18hpjv6x18626qkd7"))))
     (build-system trivial-build-system)
     (arguments
      (list #:modules '((guix build utils))

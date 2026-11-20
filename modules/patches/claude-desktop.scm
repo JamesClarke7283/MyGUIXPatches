@@ -43,7 +43,7 @@
 (define-public claude-desktop
   (package
     (name "claude-desktop")
-    (version "4.23118.0")
+    (version "5.11492.5")
     (source
      (origin
        (method url-fetch)
@@ -53,7 +53,7 @@
              version "_amd64.deb"))
        (file-name (string-append name "-" version ".deb"))
        (sha256
-        (base32 "15ssa6bqhwnkp0anyxbiyf29vfxn1k252q34fjrwj1dbrbl9dn8s"))))
+        (base32 "1kv42lhfii4ib5adszfkygkq1vbz0zv09qyvyx0bfl740yr0hqmr"))))
     (build-system chromium-binary-build-system)
     (arguments
      (list

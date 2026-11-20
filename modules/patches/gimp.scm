@@ -107,12 +107,12 @@
     (native-inputs
      (list python-hatchling))))
 
-(define gimp-mcp-commit "7325865385541a01aaf336ebc93b00332297f77f")
+(define gimp-mcp-commit "b857c2c58563ce4770ed5275857271d14e01a459")
 
 (define-public gimp-mcp
   (package
     (name "gimp-mcp")
-    (version (git-version "0.1.0" "0" gimp-mcp-commit))
+    (version "0.5.0")
     (source
      (origin
        (method git-fetch)
@@ -121,12 +121,16 @@
              (commit gimp-mcp-commit)))
        (file-name (git-file-name name version))
        (sha256
-        (base32 "0cg0y2vr5mhyy6dcfiyyhxmy403jhs9iip86cf5wm386jv1sdyjm"))))
+        (base32 "0b1x03h1dys9hcam93jbz4b2d26ap41wk5d5p2jv44k19iyksj0j"))))
     (build-system pyproject-build-system)
     (arguments
      (list
       #:phases
       #~(modify-phases %standard-phases
+          ;; The wheel also contains GIMP's own plug-in module, which can
+          ;; only import gi inside GIMP's Python environment.  The explicit
+          ;; server and plug-in checks below cover both installed halves.
+          (delete 'sanity-check)
           ;; Upstream's tests all talk to a running GIMP; they are run by
           ;; gimp-mcp-plugin.  Check here that the server module imports
           ;; under this mcp and registers every tool.
@@ -138,7 +142,7 @@
                          "import asyncio, gimp_mcp_server as s\n"
                          "names = [t.name for t in asyncio.run(s.mcp.list_tools())]\n"
                          "print(len(names), 'tools')\n"
-                         "assert len(names) == 79, names\n"
+                         "assert len(names) == 80, names\n"
                          "assert 'get_state_snapshot' in names\n"))))))))
     (native-inputs
      (list python-setuptools))
@@ -150,7 +154,7 @@
      "@command{gimp-mcp-server} is an MCP (Model Context Protocol) server for
 GIMP 3.2.  An MCP client, such as an LLM chat program or coding agent, starts
 it and talks to it over standard input and output.  It gives the language
-model 79 tools for working on images open in a running GIMP: adjustments,
+model 80 tools for working on images open in a running GIMP: adjustments,
 transforms, selections, layers, drawing, text and filters, along with PNG
 snapshots of the image so the model can check each step, and execution of
 arbitrary GIMP Python code.
@@ -175,40 +179,12 @@ permissions.")
       #~'(("gimp-mcp-plugin.py" "lib/gimp/3.0/plug-ins/gimp-mcp-plugin/"))
       #:phases
       #~(modify-phases %standard-phases
-          ;; gradient_fill reports success but leaves the layer unchanged.
-          ;; It sets x0/y0/x1/y1, which gegl:linear-gradient and
-          ;; gegl:radial-gradient do not have (they take start-x, start-y,
-          ;; end-x and end-y in pixels), inside a try that swallows the
-          ;; error.  And the gradient has an infinite extent, so
-          ;; gegl:write-buffer renders nothing into the shadow buffer unless
-          ;; a crop to the drawable comes first.  Upstream's test only checks
-          ;; the status; the check phase below also checks the pixels.
-          (add-after 'unpack 'fix-gradient-fill
-            (lambda _
-              (substitute* "gimp-mcp-plugin.py"
-                (("grad_node\\.set_property\\(\"x0\", x1 / w\\)")
-                 "grad_node.set_property(\"start-x\", x1)")
-                (("grad_node\\.set_property\\(\"y0\", y1 / h\\)")
-                 "grad_node.set_property(\"start-y\", y1)")
-                (("grad_node\\.set_property\\(\"x1\", x2 / w\\)")
-                 "grad_node.set_property(\"end-x\", x2)")
-                (("grad_node\\.set_property\\(\"y1\", y2 / h\\)")
-                 "grad_node.set_property(\"end-y\", y2)")
-                (("( *)grad_node\\.link\\(out_node\\)" _ indent)
-                 (string-append
-                  indent "crop_node = graph.create_child(\"gegl:crop\")\n"
-                  indent "crop_node.set_property(\"width\", "
-                  "float(drawable.get_width()))\n"
-                  indent "crop_node.set_property(\"height\", "
-                  "float(drawable.get_height()))\n"
-                  indent "grad_node.link(crop_node)\n"
-                  indent "crop_node.link(out_node)")))))
           (add-after 'install 'make-executable
             (lambda _
               (chmod (string-append #$output "/lib/gimp/3.0/plug-ins"
                                     "/gimp-mcp-plugin/gimp-mcp-plugin.py")
                      #o555)))
-          ;; Run upstream's run_tests.py, 59 checks over the plug-in's socket
+          ;; Run upstream's run_tests.py, 113 checks over the plug-in's socket
           ;; protocol, against the installed plug-in.  Tools that create
           ;; images open a display, so GIMP runs with its user interface on a
           ;; virtual X server rather than as gimp-console.  It also needs a

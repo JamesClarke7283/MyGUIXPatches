@@ -255,16 +255,16 @@ to other machines or networks.")
 (define-public metasploit-framework
   (package
     (name "metasploit-framework")
-    (version "6.5.10-20261106055829")
+    (version "6.5.12-20261120055717")
     (source
      (origin
        (method url-fetch)
        (uri (string-append
              "https://apt.metasploit.com/pool/main/m/metasploit-framework/"
-             "metasploit-framework_6.5.10~20261106055829~1rapid7-1_amd64.deb"))
+             "metasploit-framework_6.5.12~20261120055717~1rapid7-1_amd64.deb"))
        (file-name (string-append name "-" version ".deb"))
        (sha256
-        (base32 "02ihwxyq12lzsh56dfpl4p6kijvzvsvlqmpjj9likdfv53lfn1bi"))))
+        (base32 "1q08b87v9x8kxvmrm66kmciwhwbgpi2b1dkpk9izm5qxqk95czkx"))))
     (build-system trivial-build-system)
     (arguments
      (list
