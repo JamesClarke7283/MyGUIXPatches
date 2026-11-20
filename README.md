@@ -11,6 +11,7 @@ software that is not in Guix or nonguix, so it can be built locally from source.
       rust-nightly.scm         (patches rust-nightly)   pinned Rust nightly
       rust-nightly-build.scm   (patches rust-nightly-build)  build-side helpers
       wireguard.scm            (patches wireguard)      wireguard-go package
+      tailscale.scm            (patches tailscale)      Tailscale CLI, daemon, and desktop app
       bun.scm                  (patches bun)            Bun, built from source
       bun-bootstrap.scm        (patches bun-bootstrap)  prebuilt Bun seed for the above
       coding-agents.scm        (patches coding-agents)  oh-my-pi ("omp") and its addons
@@ -18,6 +19,8 @@ software that is not in Guix or nonguix, so it can be built locally from source.
       vscodium-kilo-code.scm   (patches vscodium-kilo-code)  Kilo Code for VSCodium
       t3-desktop.scm           (patches t3-desktop)     t3-code-desktop: native Electron app
       antigravity.scm          (patches antigravity)    Google Antigravity (Electron app)
+      antigravity-ide.scm      (patches antigravity-ide) Standalone Antigravity IDE and CLI
+      signal-desktop.scm       (patches signal-desktop) Signal Desktop Electron application
       mullvad-gui.scm          (patches mullvad-gui)    Mullvad VPN Electron client
       blender.scm              (patches blender)        Blender 5.2 LTS, MCP server and extension
       godot.scm                (patches godot)          Godot 4.7 stable editor
@@ -36,7 +39,8 @@ software that is not in Guix or nonguix, so it can be built locally from source.
       npm/mullvad-desktop.scm  (patches npm mullvad-desktop)  generated npm origins
       npm/opencode.scm         (patches npm opencode)   generated npm origins
       crates/mullvad.scm       (patches crates mullvad) generated crate origins
-      services/vpn.scm         (patches services vpn)   Guix System service
+      services/vpn.scm         (patches services vpn)   Mullvad Guix System service
+      services/tailscale.scm   (patches services tailscale)  Tailscaled service
     tools/
       update-mullvad-crates.sh regenerates the crate list from Cargo.lock
       update-opencode-npm.sh   regenerates opencode's npm origins (with the two .ts helpers)
@@ -555,8 +559,8 @@ PostgreSQL cluster and its lifecycle.
 `(patches prismlauncher)` provides **Prism Launcher 11.1.1**, built from the
 official source release with Qt 6 and OpenJDK 17.  It includes the Java launcher
 components, desktop integration, manpage, and runtime paths for Qt plugins,
-GLFW, OpenAL, controllers, Vulkan, text-to-speech, and hardware-information
-utilities.  Minecraft and its proprietary assets are not included.
+X11/Wayland SDL graphics, GLFW, OpenAL, controllers, Vulkan, text-to-speech,
+and hardware-information utilities.  Minecraft and its proprietary assets are not included.
 
 Build and install it into the default profile:
 
@@ -565,7 +569,8 @@ Build and install it into the default profile:
 
 Start it with `prismlauncher` or the desktop entry.  OpenJDK 17 is a build
 dependency; the launcher can download or select the Java version required by
-each Minecraft instance.
+each Minecraft instance.  The package build passes all 21 upstream tests, and
+its command-line version and help output were checked with headless Qt.
 
 ## AppImageLauncher
 
@@ -1358,11 +1363,85 @@ and the Vite, Rolldown, Tailwind and LightningCSS build tools. `ghostty-web`
 includes a prebuilt `ghostty-vt.wasm`. This matches how `mullvad-vpn-gui`
 treats its npm dependencies.
 
+## Tailscale
+
+`(patches tailscale)` builds **Tailscale 1.104.7** from the official source
+tag. It provides separate `tailscale` and `tailscaled` packages and uses
+Go **1.27.4**, matching upstream's toolchain requirement. Go dependencies are
+native Guix packages; the build does not download Go modules or use a bundled
+vendor archive.
+
+Build and install both programs with:
+
+    guix build -L modules tailscale tailscaled
+    guix install -L modules tailscale tailscaled
+    tailscale version
+    tailscaled --version
+
+The daemon needs root privileges and access to `/dev/net/tun`. On Guix System,
+`(patches services tailscale)` provides a Shepherd service, creates the state
+and socket directories, rotates the daemon log, and adds both programs to the
+system profile. Add the service to the operating-system `services` list:
+
+    (use-modules (patches services tailscale))
+
+    (service tailscale-service-type)
+
+Log uploading is disabled by default. Configuration fields allow the packages,
+port, socket, state directory, log file, verbosity, and extra daemon options to
+be changed. After reconfiguring, authenticate the machine and inspect its
+connection with:
+
+    sudo tailscale up
+    tailscale status
+
+On another distribution, start `tailscaled` through its service manager instead;
+the client alone cannot create a connection.
+
+### Desktop app
+
+The `tailscale-systray` package builds Tailscale's official Linux system tray
+application from the same source release. It includes the official icons and a
+visible **Tailscale System Tray** desktop entry, and installs the CLI and daemon
+as runtime dependencies:
+
+    guix build -L modules tailscale-systray
+    guix install -L modules tailscale-systray
+
+Launch it from the desktop entry or run `tailscale-systray` as your desktop user,
+not with `sudo`. The applet supports connection controls, profile switching,
+exit-node selection, and desktop notifications. It requires a running
+`tailscaled` and a desktop tray host implementing StatusNotifier/AppIndicator.
+Pass `--theme=light` or `--theme=light:nobg` for a light icon. Installing the
+package does not enable autostart.
+
+On GNOME, install the AppIndicator extension if the session has no tray host:
+
+    guix install gnome-shell-extension-appindicator
+    mkdir -p ~/.local/share/gnome-shell/extensions
+    ln -s ~/.guix-profile/share/gnome-shell/extensions/appindicatorsupport@rgcjonas.gmail.com \
+      ~/.local/share/gnome-shell/extensions/
+
+Log out and back in so GNOME Shell discovers the extension, then enable it with:
+
+    gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com
+
+## Signal Desktop
+
+`(patches signal-desktop)` updates Guix's existing Electron recipe to **Signal
+Desktop 8.35.0**, using Signal's official Debian artifact and its SHA-256 hash.
+Build and install it with:
+
+    guix build -L modules signal-desktop
+    guix install -L modules signal-desktop
+
+Start it with `signal-desktop` or the **Signal** desktop entry. It inherits the
+upstream recipe's desktop integration and Wayland-compatible window class.
+
 ## Google Antigravity (`antigravity`)
 
-`(patches antigravity)` packages the **Antigravity** application. The download
-page also offers a separate "Antigravity IDE (Standalone)" (a VS Code fork);
-that is a different program and is not packaged here.
+`(patches antigravity)` packages the **Antigravity** application. The separate
+"Antigravity IDE (Standalone)" is provided by `(patches antigravity-ide)`.
 
 Upstream publishes Linux builds only as a plain Electron tarball:
 
@@ -1413,6 +1492,27 @@ Verify:
 
     $ antigravity
     # log: "Starting app (v2.33.0) ...", "Host bridge server listening on ..."
+
+### Antigravity IDE and T3 Code
+
+`(patches antigravity-ide)` packages the standalone **Antigravity IDE 2.6.0**
+from Google's official updater archive. This is the VS Code-based IDE, not the
+Antigravity Hub above. Install it with:
+
+    guix install -L modules antigravity-ide
+
+The package provides both `antigravity-ide` and its `agy-ide` alias, including
+`--goto` file opening, a desktop entry, icons, and the Electron runtime. T3 Code
+looks for these exact commands when building its external-editor list. Restart
+T3 Code after installation so it rescans the available editors. The CLI's
+`--version` output reports the upstream VS Code base version, currently 1.107.0.
+
+T3's Antigravity provider uses a third, separate component: the **ACP runtime**.
+The Hub, IDE, and CLI do not satisfy that provider installation. Run
+`tools/install-antigravity-acp.sh` to install T3's pinned ACP release with Guix's
+ELF loader and its managed-release record, then restart T3 Code. The script
+preserves the packed upstream executables rather than breaking them with
+`patchelf`; set `ACP_ARCHIVE` to reuse an already downloaded ZIP when desired.
 
 ## ChatGPT desktop
 

@@ -10,6 +10,7 @@
   #:use-module (gnu packages bash)
   #:use-module (gnu packages compression)
   #:use-module (gnu packages cpp)
+  #:use-module (gnu packages freedesktop)
   #:use-module (gnu packages gl)
   #:use-module (gnu packages java)
   #:use-module (gnu packages kde-frameworks)
@@ -22,6 +23,7 @@
   #:use-module (gnu packages qt)
   #:use-module (gnu packages speech)
   #:use-module (gnu packages vulkan)
+  #:use-module (gnu packages xdisorg)
   #:use-module (gnu packages xorg)
   #:use-module (guix build-system qt)
   #:use-module (guix download)
@@ -66,8 +68,12 @@
               (let ((out (assoc-ref outputs "out"))
                     (library-inputs
                      '("gamemode" "glfw" "openal" "libusb" "eudev"
-                       "vulkan-loader" "flite"))
-                    (program-inputs '("mesa-utils" "pciutils" "xrandr")))
+                       "vulkan-loader" "flite" "mesa" "wayland"
+                       "libx11" "libxcursor" "libxext" "libxi"
+                       "libxfixes" "libxinerama" "libxkbcommon"
+                       "libxrandr" "libxxf86vm"))
+                    (program-inputs
+                     '("mesa-utils" "pciutils" "xrandr" "xdg-utils")))
                 ;; These libraries are loaded dynamically by Prism or by
                 ;; Minecraft's native libraries.  The utilities provide
                 ;; hardware information and compatibility with older LWJGL.
@@ -94,6 +100,16 @@
            glfw
            libarchive
            libusb
+           libx11
+           libxcursor
+           libxext
+           libxfixes
+           libxi
+           libxinerama
+           libxkbcommon
+           libxrandr
+           libxxf86vm
+           mesa
            mesa-utils
            openal
            pciutils
@@ -105,6 +121,8 @@
            qtwayland
            tomlplusplus
            vulkan-loader
+           wayland
+           xdg-utils
            xrandr
            zlib))
     (home-page "https://prismlauncher.org/")
