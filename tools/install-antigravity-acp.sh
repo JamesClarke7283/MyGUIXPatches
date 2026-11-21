@@ -1,68 +1,84 @@
 #!/usr/bin/env bash
-# Install T3 Code's Antigravity ACP runtime with Guix's ELF loader.
-# Upstream's packed executable must not be rewritten with patchelf.
+# Install T3 Code's Antigravity CLI ACP backend with Guix's ELF loader.
+# The native CLI must not be confused with the legacy agy_acp_server.par runtime.
 set -euo pipefail
 
-version=1.4.1
-sha256=2e37012ceb2a5c7fc7309b6e6596234fb637ee3c62a5199f65d4cbe777871384
-url="https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-${version}-linux-x86_64.zip"
+version=1.5.13
+build=5999302598852608
+sha512=014b37387703acab1f47cd532c8bb60167a6a3537b0f9891de03f1b1ffa9614307bc83c4b2f7551273b0877d722716b0cd9e26782f6b2a50705db4f05e18c68f
+release_id=${sha512:0:64}
+url="https://storage.googleapis.com/antigravity-public/antigravity-cli/${version}-${build}/linux-x64/cli_linux_x64.tar.gz"
 base_dir="${T3CODE_HOME:-$HOME/.t3}"
-dest="$base_dir/tools/antigravity-acp/linux-x64/versions/$sha256"
+managed_dir="$base_dir/tools/antigravity-acp/linux-x64"
+versions_dir="$managed_dir/versions"
+dest="$versions_dir/$release_id"
 
 archive="${ACP_ARCHIVE:-}"
 cleanup_archive=
 if [[ -z "$archive" ]]; then
-  archive=$(mktemp /tmp/antigravity-acp.XXXXXX.zip)
+  archive=$(mktemp /tmp/antigravity-cli.XXXXXX.tar.gz)
   cleanup_archive=$archive
   curl -fL --retry 3 -o "$archive" "$url"
 fi
 
-printf '%s  %s\n' "$sha256" "$archive" | sha256sum -c -
-work=$(mktemp -d /tmp/antigravity-acp.XXXXXX)
+printf '%s  %s\n' "$sha512" "$archive" | sha512sum -c -
+work=$(mktemp -d /tmp/antigravity-cli.XXXXXX)
+staging=
 cleanup() {
   rm -rf "$work"
+  if [[ -n "$staging" ]]; then
+    chmod -R u+w "$staging" 2>/dev/null || true
+    rm -rf "$staging"
+  fi
   if [[ -n "$cleanup_archive" ]]; then
     rm -f "$cleanup_archive"
   fi
 }
 trap cleanup EXIT
-unzip -q "$archive" -d "$work"
+tar -xzf "$archive" -C "$work" antigravity
 
 glibc=$(guix build glibc | grep -v -E 'debug|static')
 shell=$(guix build bash-minimal | grep -v -E 'doc|debug|static')/bin/sh
-mkdir -p "$dest"
-cp --reflink=auto "$work/agy_acp_server.par" "$dest/agy_acp_server.par.real"
-cp --reflink=auto "$work/localharness_external" "$dest/localharness_external"
-chmod 755 "$dest/agy_acp_server.par.real" "$dest/localharness_external"
+mkdir -p "$versions_dir"
+staging=$(mktemp -d "$versions_dir/.install-antigravity.XXXXXX")
+cp --reflink=auto "$work/antigravity" "$staging/antigravity.real"
+chmod 555 "$staging/antigravity.real"
 
-cat > "$dest/agy_acp_server.par" <<EOF
+# T3 launches the managed executable as `antigravity acp ...`.  Keep upstream's
+# executable unchanged and put Guix's loader in a small launcher beside it.
+# Disable the native self-updater: managed releases are updated as a whole.
+cat > "$staging/antigravity" <<EOF
 #!$shell
-exec $glibc/lib/ld-linux-x86-64.so.2 --library-path $glibc/lib $dest/agy_acp_server.par.real "\$@"
+export AGY_CLI_DISABLE_AUTO_UPDATE=1
+exec $glibc/lib/ld-linux-x86-64.so.2 --library-path $glibc/lib "\${0%/*}/antigravity.real" "\$@"
 EOF
-chmod 755 "$dest/agy_acp_server.par"
+chmod 555 "$staging/antigravity"
 
-bytes=$(stat -c %s "$dest/agy_acp_server.par")
-cat > "$dest/.install-complete.json" <<EOF
-{
-  "releaseId": "$sha256",
-  "version": "$version",
-  "executable": {
-    "name": "agy_acp_server.par",
-    "bytes": $bytes
-  },
-  "harness": {
-    "name": "localharness_external",
-    "bytes": $(stat -c %s "$dest/localharness_external")
-  }
-}
+# Smoke-test both the native executable and the ACP entry point before making
+# this release active.  The install record and its byte count are T3's format.
+"$staging/antigravity" --version
+"$staging/antigravity" acp --help >/dev/null
+bytes=$(stat -c %s "$staging/antigravity")
+cat > "$staging/.install-complete.json" <<EOF
+{"releaseId":"$release_id","version":"$version","executable":{"name":"antigravity","bytes":$bytes}}
 EOF
+chmod 400 "$staging/.install-complete.json"
 
-cat > "$base_dir/tools/antigravity-acp/linux-x64/active.json" <<EOF
-{
-  "releaseId": "$sha256"
-}
+if [[ -L "$dest" ]]; then
+  rm -f "$dest"
+elif [[ -d "$dest" ]]; then
+  chmod -R u+w "$dest"
+  rm -rf "$dest"
+fi
+mv "$staging" "$dest"
+staging=
+chmod 500 "$dest"
+
+cat > "$managed_dir/active.json.tmp" <<EOF
+{"releaseId":"$release_id"}
 EOF
+chmod 600 "$managed_dir/active.json.tmp"
+mv "$managed_dir/active.json.tmp" "$managed_dir/active.json"
 
-"$dest/agy_acp_server.par" --version
-printf '\nInstalled Antigravity ACP %s in %s\n' "$version" "$dest"
+printf '\nInstalled Antigravity CLI ACP backend %s in %s\n' "$version" "$dest"
 printf 'Restart T3 Code to refresh its provider cache.\n'

@@ -1495,7 +1495,7 @@ Verify:
 
 ### Antigravity IDE and T3 Code
 
-`(patches antigravity-ide)` packages the standalone **Antigravity IDE 2.6.0**
+`(patches antigravity-ide)` packages the standalone **Antigravity IDE 2.8.0**
 from Google's official updater archive. This is the VS Code-based IDE, not the
 Antigravity Hub above. Install it with:
 
@@ -1507,12 +1507,27 @@ looks for these exact commands when building its external-editor list. Restart
 T3 Code after installation so it rescans the available editors. The CLI's
 `--version` output reports the upstream VS Code base version, currently 1.107.0.
 
-T3's Antigravity provider uses a third, separate component: the **ACP runtime**.
-The Hub, IDE, and CLI do not satisfy that provider installation. Run
-`tools/install-antigravity-acp.sh` to install T3's pinned ACP release with Guix's
-ELF loader and its managed-release record, then restart T3 Code. The script
-preserves the packed upstream executables rather than breaking them with
-`patchelf`; set `ACP_ARCHIVE` to reuse an already downloaded ZIP when desired.
+The package also bundles the IDE's native **Antigravity CLI 1.5.13 backend**.
+The launcher links the patched executable into `~/.gemini/bin/agy`, writes the
+version metadata the extension expects, and disables the extension's periodic
+backend self-updates. This prevents the usual Guix System failure where the IDE
+repeatedly downloads its backend and then cannot execute its FHS ELF loader.
+Upgrade `antigravity-ide` through Guix to upgrade this backend; T3's separately
+managed ACP runtime below is unaffected.
+
+T3's Antigravity provider uses a third, separate component: the **Antigravity
+CLI ACP backend**. T3 Code 0.1.11 requires the native CLI runtime (version 1.5
+or newer); the legacy `agy_acp_server.par` releases no longer work. The Hub and
+IDE do not satisfy that provider installation. Run
+`tools/install-antigravity-acp.sh` to install the pinned **Antigravity CLI
+1.5.13** release with Guix's ELF loader and T3's managed-release record, then
+restart T3 Code. This also replaces an older managed `active.json` selection,
+which otherwise takes precedence over an `agy` executable on `PATH`.
+
+The script preserves the upstream executable rather than rewriting it with
+`patchelf`, disables its self-updater, and smoke-tests both `--version` and `acp
+--help` before activation. Set `ACP_ARCHIVE` to reuse an already downloaded
+CLI tarball when desired.
 
 ## ChatGPT desktop
 

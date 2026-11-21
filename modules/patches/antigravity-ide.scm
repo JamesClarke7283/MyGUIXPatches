@@ -9,6 +9,7 @@
 ;;;
 
 (define-module (patches antigravity-ide)
+  #:use-module (gnu packages base)
   #:use-module (gnu packages bash)
   #:use-module (gnu packages freedesktop)
   #:use-module (guix base32)
@@ -18,12 +19,32 @@
   #:use-module (nonguix build-system chromium-binary)
   #:use-module (nonguix licenses))
 
-(define %antigravity-ide-build "2.6.0-5526304964083712")
+(define %antigravity-ide-build "2.8.0-6733682917113856")
+(define %antigravity-cli-version "1.5.13")
+(define %antigravity-cli-build "5999302598852608")
+(define %antigravity-cli-sha512
+  "014b37387703acab1f47cd532c8bb60167a6a3537b0f9891de03f1b1ffa9614307bc83c4b2f7551273b0877d722716b0cd9e26782f6b2a50705db4f05e18c68f")
+(define %antigravity-cli-release-base-url
+  (string-append "https://antigravity-cli-auto-updater-974169037036."
+                 "us-central1.run.app"))
+
+;; The IDE downloads this binary into ~/.gemini/bin/agy at run time.  Bundle the
+;; same release so its ELF interpreter can be patched before the IDE starts it.
+(define %antigravity-cli-source
+  (origin
+    (method url-fetch)
+    (uri (string-append
+          "https://storage.googleapis.com/antigravity-public/antigravity-cli/"
+          %antigravity-cli-version "-" %antigravity-cli-build
+          "/linux-x64/cli_linux_x64.tar.gz"))
+    (file-name "agy_cli_linux_x64.tar.gz")
+    (sha256
+     (base32 "1cnlc1hcqy9dznqi8irnncmgbc61hrm40z337mln55fhy1nwrabz"))))
 
 (define-public antigravity-ide
   (package
     (name "antigravity-ide")
-    (version "2.6.0")
+    (version "2.8.0")
     (source
      (origin
        (method url-fetch)
@@ -33,7 +54,7 @@
              "/linux-x64/Antigravity%20IDE.tar.gz"))
        (file-name (string-append name "-" version ".tar.gz"))
        (sha256
-        (base32 "0mj3z6k6xdbl34qx81yjlx0x5388lgkqwbvm36vb40wicz3sfq5h"))))
+        (base32 "1mwphprn33cks2rxhi4svdc58c76gf7qp5dg05hv8p18mfx3dakv"))))
     (build-system chromium-binary-build-system)
     (arguments
      (list
@@ -57,6 +78,63 @@
             (lambda* (#:key source #:allow-other-keys)
               (invoke "tar" "xzf" source)
               (chdir "Antigravity IDE")))
+          (add-before 'install-wrapper 'install-backend
+            (lambda* (#:key inputs outputs #:allow-other-keys)
+              (let* ((out (assoc-ref outputs "out"))
+                     (app (string-append out "/share/antigravity-ide"))
+                     (backend-dir (string-append app "/libexec/antigravity-cli"))
+                     (backend (string-append backend-dir "/agy"))
+                     (installer (string-append backend-dir "/install-backend"))
+                     (loader (string-append
+                              (assoc-ref inputs "glibc")
+                              "/lib/ld-linux-x86-64.so.2"))
+                     (bash (which "bash")))
+                (mkdir-p backend-dir)
+                (invoke "tar" "xzf" #$%antigravity-cli-source
+                        "-C" backend-dir "antigravity")
+                (rename-file (string-append backend-dir "/antigravity") backend)
+                (chmod backend #o755)
+                (invoke "patchelf" "--set-interpreter" loader backend)
+                (invoke backend "--version")
+
+                ;; Point the extension's fixed per-user path at the patched,
+                ;; package-managed binary.  Fresh sidecar statistics and a fresh
+                ;; release-check timestamp let it start immediately without an
+                ;; update download.  The launcher also disables periodic update
+                ;; checks; upgrading this package upgrades the backend.
+                (call-with-output-file installer
+                  (lambda (port)
+                    (format port "#!~a
+set -euo pipefail
+backend_dir=\"$HOME/.gemini/bin\"
+target=\"${0%/*}/agy\"
+mkdir -p \"$backend_dir\"
+ln -sfn \"$target\" \"$backend_dir/agy\"
+rm -f \"$backend_dir/agy.next\"
+now=$(date +%s%3N)
+size=$(stat -c %s \"$target\")
+mtime_ms=$(( $(stat -c %Y \"$target\") * 1000 ))
+ino=$(stat -c %i \"$target\")
+cat > \"$backend_dir/agy.version.json.tmp.$$\" <<EOF
+{
+  \"schemaVersion\": 1,
+  \"version\": \"~a\",
+  \"size\": $size,
+  \"mtimeMs\": $mtime_ms,
+  \"ino\": $ino,
+  \"installedAt\": $now,
+  \"sha512\": \"~a\",
+  \"releaseBaseUrl\": \"~a\",
+  \"lastCheckAt\": $now
+}
+EOF
+mv \"$backend_dir/agy.version.json.tmp.$$\" \"$backend_dir/agy.version.json\"
+"
+                            bash #$%antigravity-cli-version
+                            #$%antigravity-cli-sha512
+                            #$%antigravity-cli-release-base-url)))
+                (chmod installer #o555)
+                #t)))
           (add-before 'install-wrapper 'install-cli-and-desktop-integration
             (lambda* (#:key inputs outputs #:allow-other-keys)
               (let* ((out (assoc-ref outputs "out"))
@@ -70,6 +148,14 @@
                          (string-append bin "/antigravity-ide"))
                 (symlink (string-append app "/bin/antigravity-ide")
                          (string-append bin "/agy-ide"))
+
+                (substitute* (string-append app "/bin/antigravity-ide")
+                  (("^ELECTRON_RUN_AS_NODE=1 ")
+                   (string-append
+                    "\"$VSCODE_PATH/libexec/antigravity-cli/install-backend\"\n"
+                    "export ANTIGRAVITY_PERIODIC_UPDATE_CHECK_INTERVAL_MS=0\n"
+                    "export AGY_CLI_DISABLE_AUTO_UPDATE=1\n"
+                    "ELECTRON_RUN_AS_NODE=1 ")))
 
                 (let ((sandbox (string-append app "/chrome-sandbox")))
                   (when (file-exists? sandbox)
@@ -110,7 +196,7 @@
                      `("PATH" ":" prefix (,(string-append xdg "/bin")))))
                  '("antigravity-ide" "agy-ide"))
                 #t))))))
-    (inputs (list bash-minimal xdg-utils))
+    (inputs (list bash-minimal glibc xdg-utils))
     (supported-systems '("x86_64-linux"))
     (home-page "https://antigravity.google/")
     (synopsis "Google's VS Code-based Antigravity IDE")
